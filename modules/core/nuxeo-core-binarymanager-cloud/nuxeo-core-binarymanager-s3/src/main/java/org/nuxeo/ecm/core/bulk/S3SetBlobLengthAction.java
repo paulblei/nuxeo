@@ -23,6 +23,7 @@ import static org.nuxeo.ecm.core.bulk.BulkServiceImpl.STATUS_STREAM;
 import static org.nuxeo.lib.stream.computation.AbstractComputation.INPUT_1;
 import static org.nuxeo.lib.stream.computation.AbstractComputation.OUTPUT_1;
 
+import java.io.IOException;
 import java.io.Serializable;
 import java.util.Arrays;
 import java.util.List;
@@ -30,6 +31,7 @@ import java.util.Map;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.nuxeo.ecm.blob.s3.S3BlobProvider;
 import org.nuxeo.ecm.core.api.AbstractSession;
 import org.nuxeo.ecm.core.api.Blob;
 import org.nuxeo.ecm.core.api.CoreSession;
@@ -38,6 +40,8 @@ import org.nuxeo.ecm.core.api.PropertyException;
 import org.nuxeo.ecm.core.api.impl.DownloadBlobGuard;
 import org.nuxeo.ecm.core.blob.BlobManager;
 import org.nuxeo.ecm.core.blob.BlobProvider;
+import org.nuxeo.ecm.core.blob.ManagedBlob;
+import org.nuxeo.ecm.core.blob.SimpleManagedBlob;
 import org.nuxeo.ecm.core.blob.binary.BinaryBlob;
 import org.nuxeo.ecm.core.bulk.action.computation.AbstractBulkComputation;
 import org.nuxeo.ecm.core.model.Document;
@@ -102,8 +106,8 @@ public class S3SetBlobLengthAction implements StreamProcessorTopology {
                         return;
                     }
                     Blob blob = accessor.getBlob();
-                    if (blob instanceof BinaryBlob) {
-                        Blob fixedBlob = fixBlob(doc.getUUID(), (BinaryBlob) blob, force);
+                    if (blob instanceof ManagedBlob managedBlob) {
+                        Blob fixedBlob = fixBlob(doc.getUUID(), managedBlob, force);
                         if (fixedBlob != null) {
                             accessor.setBlob(fixedBlob);
                         }
@@ -116,7 +120,7 @@ public class S3SetBlobLengthAction implements StreamProcessorTopology {
             }
         }
 
-        protected Blob fixBlob(String docId, BinaryBlob blob, boolean force) {
+        protected Blob fixBlob(String docId, ManagedBlob blob, boolean force) {
             if (blob == null || blob.getKey() == null) {
                 log.debug("Skipping null blob for doc: {}", docId);
                 return null;
@@ -138,19 +142,38 @@ public class S3SetBlobLengthAction implements StreamProcessorTopology {
                 return null;
             }
             log.info("Fixing length blob: {} for doc: {}, from: {} to: {}.", blob.getKey(), docId, length, fixedLength);
-            return new BinaryBlob(blob.getBinary(), blob.getKey(), blob.getFilename(), blob.getMimeType(),
-                    blob.getEncoding(), blob.getDigestAlgorithm(), blob.getDigest(), fixedLength);
+            if (blob instanceof SimpleManagedBlob simpleManagedBlob) {
+                simpleManagedBlob.length = fixedLength;
+                return simpleManagedBlob;
+            } else if (blob instanceof BinaryBlob binaryBlob) {
+                log.info("Fixing length blob: {} for doc: {}, from: {} to: {}.", blob.getKey(), docId, length,
+                        fixedLength);
+                return new BinaryBlob(binaryBlob.getBinary(), binaryBlob.getKey(), binaryBlob.getFilename(),
+                        binaryBlob.getMimeType(), binaryBlob.getEncoding(), binaryBlob.getDigestAlgorithm(),
+                        binaryBlob.getDigest(), fixedLength);
+            } else {
+                log.warn("Unsupported blob: {} with class: {}", blobKey, blobKey.getClass());
+                return null;
+            }
+
         }
 
-        protected long getBlobLengthFromS3(String docId, Blob blob) {
+        protected long getBlobLengthFromS3(String docId, ManagedBlob blob) {
             long length = blob.getLength();
             BlobProvider blobProvider = Framework.getService(BlobManager.class).getBlobProvider(blob);
             if (blobProvider == null) {
                 log.error("Blob provider not found for doc: {}, blob: {}", docId, blob.getDigest());
-            } else if (blobProvider instanceof S3BinaryManager) {
-                S3BinaryManager sourceBlobProvider = (S3BinaryManager) blobProvider;
+            } else if (blobProvider instanceof S3BlobProvider s3BlobProvider) {
                 log.debug("Fetching length from s3");
-                length = sourceBlobProvider.lengthOfBlob(blob.getDigest());
+                try {
+                    length = s3BlobProvider.lengthOfBlob(blob);
+                } catch (IOException e) {
+                    log.warn("Cannot get length for blob: {},  doc{}: ", blob::getKey, () -> docId);
+                    length = -1;
+                }
+            } else if (blobProvider instanceof S3BinaryManager s3Binarymanager) {
+                log.debug("Fetching length from s3");
+                length = s3Binarymanager.lengthOfBlob(blob.getDigest());
             } else {
                 log.debug("Not supported binary manager impl");
             }

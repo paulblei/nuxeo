@@ -18,6 +18,8 @@
  */
 package org.nuxeo.ecm.core.bulk;
 
+import org.nuxeo.ecm.blob.s3.S3BlobProviderFeature;
+import org.nuxeo.ecm.blob.s3.S3BlobStore;
 import org.nuxeo.ecm.core.api.Blob;
 import org.nuxeo.ecm.core.api.Blobs;
 import org.nuxeo.ecm.core.api.CoreSession;
@@ -25,10 +27,12 @@ import org.nuxeo.ecm.core.api.DocumentModel;
 import org.nuxeo.ecm.core.api.VersioningOption;
 import org.nuxeo.ecm.core.test.annotations.RepositoryInit;
 
-
 /**
  * @since 2021.9
+ * @deprecated since 2023.9, {@link S3BlobProviderFeature} is evaluated after. {@link S3BlobStore#clear()} is called
+ *             before the test starts resulting in an empty store.
  */
+@Deprecated
 public class BlobDocumentSetRepositoryInit implements RepositoryInit {
     @Override
     public void populate(CoreSession session) {
@@ -73,7 +77,7 @@ public class BlobDocumentSetRepositoryInit implements RepositoryInit {
 
         doc = session.createDocumentModel(folder.getPathAsString(), "file-without-blob", "File");
         doc = session.createDocument(doc);
-    }
 
+    }
 
 }

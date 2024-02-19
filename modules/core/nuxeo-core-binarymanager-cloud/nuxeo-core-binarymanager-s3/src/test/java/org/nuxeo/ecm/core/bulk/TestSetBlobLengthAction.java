@@ -24,23 +24,29 @@ import static org.junit.Assert.assertTrue;
 import static org.nuxeo.ecm.core.bulk.S3SetBlobLengthAction.ACTION_NAME;
 import static org.nuxeo.ecm.core.bulk.message.BulkStatus.State.COMPLETED;
 
+import java.io.File;
+import java.net.URISyntaxException;
+import java.net.URL;
 import java.time.Duration;
 
 import javax.inject.Inject;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.nuxeo.ecm.blob.s3.S3BlobProviderFeature;
 import org.nuxeo.ecm.core.api.Blob;
+import org.nuxeo.ecm.core.api.Blobs;
 import org.nuxeo.ecm.core.api.CoreSession;
 import org.nuxeo.ecm.core.api.DocumentModel;
+import org.nuxeo.ecm.core.api.VersioningOption;
+import org.nuxeo.ecm.core.api.impl.blob.URLBlob;
 import org.nuxeo.ecm.core.bulk.computation.BulkScrollerComputation;
 import org.nuxeo.ecm.core.bulk.message.BulkCommand.Builder;
 import org.nuxeo.ecm.core.bulk.message.BulkStatus;
 import org.nuxeo.ecm.core.test.CoreFeature;
-import org.nuxeo.ecm.core.test.annotations.RepositoryConfig;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
@@ -49,7 +55,6 @@ import org.nuxeo.runtime.test.runner.TransactionalFeature;
 @RunWith(FeaturesRunner.class)
 @Features({ CoreFeature.class, S3BlobProviderFeature.class })
 @Deploy("org.nuxeo.ecm.core.storage.binarymanager.s3.tests:OSGI-INF/test-bulk-contrib.xml")
-@RepositoryConfig(init = BlobDocumentSetRepositoryInit.class)
 public class TestSetBlobLengthAction {
 
     private static final Logger log = LogManager.getLogger(BulkScrollerComputation.class);
@@ -63,11 +68,76 @@ public class TestSetBlobLengthAction {
     @Inject
     public TransactionalFeature txFeature;
 
+    protected long expectedUrlBlobSize;
+
+    protected long expectedMissingBlobSize;
+
+    @Before
+    public void populate() throws URISyntaxException {
+        DocumentModel folder = session.createDocumentModel("/", "test", "Folder");
+        folder = session.createDocument(folder);
+
+        DocumentModel doc = session.createDocumentModel(folder.getPathAsString(), "file1", "File");
+        Blob blob = Blobs.createBlob("A blob content");
+        blob.setFilename("test_content_ok.doc");
+        doc.setProperty("file", "content", blob);
+        doc = session.createDocument(doc);
+
+        doc = session.createDocumentModel(folder.getPathAsString(), "file2", "File");
+        blob = Blobs.createBlob("Another blob content");
+        blob.setFilename("test_content_ok2.doc");
+        doc.setProperty("file", "content", blob);
+        doc = session.createDocument(doc);
+
+        doc.setPropertyValue("dc:title", "new title");
+        // create versions
+        session.checkIn(doc.getRef(), VersioningOption.MINOR, "testing version");
+        session.checkOut(doc.getRef());
+        session.checkIn(doc.getRef(), VersioningOption.MINOR, "another version");
+
+        doc = session.createDocumentModel(folder.getPathAsString(), "file-missing-length", "File");
+        blob = new MissingLengthBlob("A blob with a missing length");
+        blob.setFilename("test_file_missing_length.doc");
+        doc.setProperty("file", "content", blob);
+        doc = session.createDocument(doc);
+
+        // create proxy
+        DocumentModel folder2 = session.createDocumentModel("/", "folder", "Folder");
+        folder2 = session.createDocument(folder2);
+        DocumentModel proxy = session.createProxy(doc.getRef(), folder2.getRef());
+        proxy = session.saveDocument(proxy);
+
+        doc = session.createDocumentModel(folder.getPathAsString(), "file-zero-length", "File");
+        blob = new ZeroLengthBlob("A blob with an invalid length of 0");
+        blob.setFilename("test_file_missing_length.doc");
+        doc.setProperty("file", "content", blob);
+        doc = session.createDocument(doc);
+
+        doc = session.createDocumentModel(folder.getPathAsString(), "file-without-blob", "File");
+        doc = session.createDocument(doc);
+
+        doc = session.createDocumentModel(folder.getPathAsString(), "url-blob-file", "File");
+        URL url = Thread.currentThread().getContextClassLoader().getResource("test.blob");
+        File file = new File(url.toURI());
+        expectedUrlBlobSize = file.length();
+        blob = new URLBlob(url);
+        blob.setFilename("test_url_missing_length.doc");
+        doc.setProperty("file", "content", blob);
+        doc = session.createDocument(doc);
+        txFeature.nextTransaction();
+
+    }
+
+    protected int getDocsWithoutBlobLength() {
+        return session.query("SELECT * FROM File WHERE file:content/length IS NULL").size();
+    }
+
     @Test
-    public void testSetBlobLength() throws Exception {
-        // Note that content length is updated only on S3BinaryManager
+    public void testSetBlobLength() throws InterruptedException {
         String nxql = "SELECT * from File";
         dumpDocs("BEFORE", nxql);
+        // file-missing-length + file-missing-length proxy + file-without-blob + url-blob-file
+        assertEquals(4, getDocsWithoutBlobLength());
         String commandId = service.submit(
                 new Builder(ACTION_NAME, nxql, "Administrator").repository(session.getRepositoryName())
                                                                .param("force", true)
@@ -80,6 +150,8 @@ public class TestSetBlobLengthAction {
         assertEquals(COMPLETED, status.getState());
         txFeature.nextTransaction();
         dumpDocs("AFTER", nxql);
+        // file-without-blob
+        assertEquals(1, getDocsWithoutBlobLength());
     }
 
     protected void dumpDocs(String title, String nxql) {
