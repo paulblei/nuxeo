@@ -504,7 +504,7 @@ public class SignatureServiceImpl extends DefaultComponent implements SignatureS
     protected List<X509Certificate> getCertificates(PdfReader pdfReader) throws SignException {
         List<X509Certificate> pdfCertificates = new ArrayList<>();
         AcroFields acroFields = pdfReader.getAcroFields();
-        List<String> signatureNames = acroFields.getSignatureNames();
+        List<String> signatureNames = acroFields.getSignedFieldNames();
         for (String signatureName : signatureNames) {
             PdfPKCS7 pdfPKCS7 = acroFields.verifySignature(signatureName);
             X509Certificate signingCertificate = pdfPKCS7.getSigningCertificate();

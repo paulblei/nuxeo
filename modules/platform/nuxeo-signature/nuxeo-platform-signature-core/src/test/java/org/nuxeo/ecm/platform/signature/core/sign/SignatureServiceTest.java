@@ -198,7 +198,7 @@ public class SignatureServiceTest {
         PdfReader reader = new PdfReader(blob.getStream());
         try {
             @SuppressWarnings("unchecked")
-            List<String> names = reader.getAcroFields().getSignatureNames();
+            List<String> names = reader.getAcroFields().getSignedFieldNames();
             return names;
         } finally {
             reader.close();
