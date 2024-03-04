@@ -1,0 +1,147 @@
+{
+  "scale": {
+    "currentNodes": 4,
+    "bestNodes": 4,
+    "metric": 0
+  },
+  "nodes": [
+    {
+      "hostname": "fad63167e528",
+      "cpuCores": "8",
+      "created": "2024-03-01T20:52:17Z",
+      "ip": "192.168.1.3",
+      "nodeId": "myapp-dev-app-421-10-9-8-116-euc",
+      "jvmHeapSize": "16584278016",
+      "alive": "2024-03-04T14:27:17Z",
+      "type": "front"
+    },
+    {
+      "hostname": "5c81b5d32594",
+      "cpuCores": "8",
+      "created": "2024-03-01T20:50:12Z",
+      "ip": "192.168.1.3",
+      "nodeId": "myapp-dev-worker-421-10-9-7-137-euc",
+      "jvmHeapSize": "16584278016",
+      "alive": "2024-03-04T14:27:24Z",
+      "type": "worker"
+    },
+    {
+      "hostname": "c151df364916",
+      "cpuCores": "8",
+      "created": "2024-03-01T20:50:13Z",
+      "ip": "192.168.1.3",
+      "nodeId": "myapp-dev-worker-421-10-9-9-190-euc",
+      "jvmHeapSize": "16584278016",
+      "alive": "2024-03-04T14:27:26Z",
+      "type": "worker"
+    },
+    {
+      "hostname": "035f48108386",
+      "cpuCores": "8",
+      "created": "2024-03-01T20:51:47Z",
+      "ip": "192.168.1.3",
+      "nodeId": "myapp-dev-worker-421-10-9-8-85-euc",
+      "jvmHeapSize": "16584278016",
+      "alive": "2024-03-04T14:26:54Z",
+      "type": "worker"
+    },
+    {
+      "hostname": "66d9d9fb81b4",
+      "cpuCores": "8",
+      "created": "2024-03-01T20:50:01Z",
+      "ip": "192.168.1.4",
+      "nodeId": "myapp-dev-worker-421-10-9-9-90-euc",
+      "jvmHeapSize": "16584278016",
+      "alive": "2024-03-04T14:27:13Z",
+      "type": "worker"
+    }
+  ],
+  "computations": [
+    {
+      "computation": "bulk-garbageCollectOrphanBlobs",
+      "streams": {
+        "bulk-garbageCollectOrphanBlobs": {
+          "stream": "bulk-garbageCollectOrphanBlobs",
+          "partitions": 8,
+          "lag": 150932,
+          "end": 185565,
+          "latency": 208919853
+        }
+      },
+      "nodes": [
+        {
+          "nodeId": "myapp-dev-worker-421-10-9-9-90-euc",
+          "threads": 2,
+          "timestamp": 1709562433,
+          "count": 17512,
+          "sum": 931992562258334,
+          "rate1m": 0.08068907157968513,
+          "rate5m": 0.07761596615729768,
+          "min": 50.703094007,
+          "p50": 52.613100627,
+          "mean": 52.501479378445794,
+          "p95": 52.84026964,
+          "max": 72.737024271,
+          "stddev": 0.389580665799811
+        },
+        {
+          "nodeId": "myapp-dev-worker-421-10-9-7-137-euc",
+          "threads": 2,
+          "timestamp": 1709562444,
+          "count": 17400,
+          "sum": 931990142734071,
+          "rate1m": 0.06284198095923756,
+          "rate5m": 0.07369650991461706,
+          "min": 50.654032624,
+          "p50": 52.606382904,
+          "mean": 52.63408575067795,
+          "p95": 53.141590268,
+          "max": 62.349001535,
+          "stddev": 0.394321755082807
+        },
+        {
+          "nodeId": "myapp-dev-worker-421-10-9-9-190-euc",
+          "threads": 2,
+          "timestamp": 1709562446,
+          "count": 17924,
+          "sum": 932104694099387,
+          "rate1m": 0.10227254256317443,
+          "rate5m": 0.08124863388353029,
+          "min": 50.29539673,
+          "p50": 52.686472112,
+          "mean": 52.60837981977763,
+          "p95": 53.096680247,
+          "max": 72.891183719,
+          "stddev": 0.6008924196288827
+        },
+        {
+          "nodeId": "myapp-dev-worker-421-10-9-8-85-euc",
+          "threads": 2,
+          "timestamp": 1709562414,
+          "count": 16440,
+          "sum": 931873821621041,
+          "rate1m": 0.07951602709833087,
+          "rate5m": 0.07745907975206436,
+          "min": 50.340821788,
+          "p50": 51.729455769,
+          "mean": 51.857232101937726,
+          "p95": 52.817029275,
+          "max": 60.917129369,
+          "stddev": 0.5729870337943601
+        }
+      ],
+      "current": {
+        "nodes": 4,
+        "threads": 8,
+        "rate1m": 0.32531962,
+        "eta": 463949
+      },
+      "best": {
+        "nodes": 4,
+        "threads": 8,
+        "rate1m": 0.32531962,
+        "eta": 463949
+      }
+    }
+  ]
+}

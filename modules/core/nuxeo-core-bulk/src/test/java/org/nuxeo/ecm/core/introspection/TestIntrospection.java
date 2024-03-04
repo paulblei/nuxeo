@@ -63,13 +63,23 @@ public class TestIntrospection {
     }
 
     @Test
-    public void testScaleDown() throws Exception {
+    public void testScaleIdle() throws Exception {
         String in = readFile("data/introspection-cluster-idle.json");
         StreamIntrospectionConverter convert = new StreamIntrospectionConverter(in);
         String out = convert.getActivity();
         ObjectMapper mapper = new ObjectMapper();
-        assertEquals(mapper.readTree(readFile("data/scale-down.json")), mapper.readTree(out));
+        assertEquals(mapper.readTree(readFile("data/scale-idle.json")), mapper.readTree(out));
     }
+
+    @Test
+    public void testScaleConstantLoad() throws Exception {
+        String in = readFile("data/introspection-cluster-constant.json");
+        StreamIntrospectionConverter convert = new StreamIntrospectionConverter(in);
+        String out = convert.getActivity();
+        ObjectMapper mapper = new ObjectMapper();
+        assertEquals(mapper.readTree(readFile("data/scale-constant.json")), mapper.readTree(out));
+    }
+
 
     @Test
     public void testStreams() throws Exception {

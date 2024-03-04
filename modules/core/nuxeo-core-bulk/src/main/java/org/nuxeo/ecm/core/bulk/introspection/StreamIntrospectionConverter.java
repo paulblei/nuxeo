@@ -358,20 +358,22 @@ public class StreamIntrospectionConverter {
     }
 
     protected JsonNode getScaleMetrics(int workerCount, ArrayNode computations) {
-        int scale = 1; // always keep a worker nodes
+        int bestNodes = 1; // always keep a worker nodes
         int current = workerCount > 0 ? workerCount : 1;
         for (JsonNode computation : computations) {
             int nodes = computation.at("/current/nodes").asInt();
-            int bNodes = computation.at("/best/nodes").asInt();
-            if (bNodes > nodes && bNodes > scale) {
+            if (nodes > current) {
                 current = nodes;
-                scale = bNodes;
+            }
+            int bNodes = computation.at("/best/nodes").asInt();
+            if (bNodes > bestNodes) {
+                bestNodes = bNodes;
             }
         }
         ObjectNode ret = new ObjectMapper().getNodeFactory().objectNode();
         ret.put("currentNodes", current);
-        ret.put("bestNodes", scale);
-        ret.put("metric", scale - current);
+        ret.put("bestNodes", bestNodes);
+        ret.put("metric", bestNodes - current);
         return ret;
     }
 
