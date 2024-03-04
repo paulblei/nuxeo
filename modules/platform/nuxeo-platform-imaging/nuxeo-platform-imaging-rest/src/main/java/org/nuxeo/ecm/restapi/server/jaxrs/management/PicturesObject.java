@@ -21,6 +21,8 @@ package org.nuxeo.ecm.restapi.server.jaxrs.management;
 
 import static javax.ws.rs.core.MediaType.APPLICATION_JSON;
 import static org.nuxeo.ecm.core.api.security.SecurityConstants.SYSTEM_USERNAME;
+import static org.nuxeo.ecm.platform.picture.recompute.RecomputeViewsAction.ACTION_NAME;
+import static org.nuxeo.ecm.platform.picture.recompute.RecomputeViewsAction.ACTION_NAME_BG;
 
 import javax.ws.rs.FormParam;
 import javax.ws.rs.POST;
@@ -61,11 +63,12 @@ public class PicturesObject extends AbstractResource<ResourceTypeImpl> {
         String finalQuery = StringUtils.defaultIfBlank(query, PICTURES_DEFAULT_QUERY);
         BulkService bulkService = Framework.getService(BulkService.class);
         try {
-            String commandId = bulkService.submit(new BulkCommand.Builder(RecomputeViewsAction.ACTION_NAME, finalQuery,
-                    SYSTEM_USERNAME).repository(ctx.getCoreSession().getRepositoryName())
-                                    .setExclusive(entireRepository)
-                                    .param(RecomputeViewsAction.PARAM_XPATH, "file:content")
-                                    .build());
+            String commandId = bulkService.submit(new BulkCommand.Builder(RecomputeViewsAction.ACTION_NAME_BG,
+                    finalQuery, SYSTEM_USERNAME).orElseAction(RecomputeViewsAction.ACTION_NAME)
+                                                .repository(ctx.getCoreSession().getRepositoryName())
+                                                .setExclusive(entireRepository)
+                                                .param(RecomputeViewsAction.PARAM_XPATH, "file:content")
+                                                .build());
             return bulkService.getStatus(commandId);
         } catch (IllegalStateException e) {
             throw new ConcurrentUpdateException(e.getMessage(), e);

@@ -208,6 +208,19 @@ public class TestWordCountAction {
         assertEquals(UNKNOWN, status.getState());
     }
 
+    @Test
+    public void testAlternativeCommand() {
+        String validAction = WordCountAction.ACTION_NAME;
+        // fallback to alternative when action doesn't exist or disabled
+        BulkCommand command = new BulkCommand.Builder("UnExistingActionName", "query", "user").orElseAction(validAction)
+                                                                                              .build();
+        assertEquals(validAction, command.getAction());
+        command = new BulkCommand.Builder("testWordCountDisabled", "query", "user").orElseAction(validAction).build();
+        assertEquals(validAction, command.getAction());
+        // no fallback when it exists.
+        command = new BulkCommand.Builder(validAction, "query", "user").orElseAction("testWordCountDisabled").build();
+        assertEquals(validAction, command.getAction());
+    }
 
     protected String createFile(int wordCount) throws IOException {
         File tempFile = testFolder.newFile("file.txt");

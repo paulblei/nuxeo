@@ -175,6 +175,7 @@ public class StreamServiceImpl extends DefaultComponent implements StreamService
         log.info("Init Stream processor: {}", descriptor.getId());
         Topology topology;
         try {
+            descriptor.options.put("processorName", descriptor.getId());
             topology = descriptor.klass.getDeclaredConstructor().newInstance().getTopology(descriptor.options);
         } catch (ReflectiveOperationException e) {
             throw new StreamRuntimeException("Can not create topology for processor: " + descriptor.getId(), e);

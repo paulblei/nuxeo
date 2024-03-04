@@ -35,6 +35,8 @@ import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
 import org.apache.commons.lang3.builder.ToStringBuilder;
+import org.nuxeo.ecm.core.bulk.BulkAdminService;
+import org.nuxeo.runtime.api.Framework;
 
 /**
  * A message representing a bulk command
@@ -255,7 +257,7 @@ public class BulkCommand implements Serializable {
     }
 
     public static class Builder {
-        protected final String action;
+        protected String action;
 
         protected final String query;
 
@@ -521,5 +523,20 @@ public class BulkCommand implements Serializable {
             return new BulkCommand(this);
         }
 
+        /**
+         * If the main action is not enabled or not exist fallback to the alternative action.
+         *
+         * @since 2023.9
+         */
+        public Builder orElseAction(String alternativeAction) {
+            if (isEmpty(alternativeAction)) {
+                throw new IllegalArgumentException("Alternative action cannot be empty");
+            }
+            BulkAdminService adminService = Framework.getService(BulkAdminService.class);
+            if (!adminService.getActions().contains(action)) {
+                action = alternativeAction;
+            }
+            return this;
+        }
     }
 }

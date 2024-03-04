@@ -8,6 +8,9 @@
 
     <action name="testWordCountLimited" inputStream="test/wordCount" defaultScroller="myFileScroll" bucketSize="100"
       batchSize="25" defaultQueryLimit="100" />
+
+    <action name="testWordCountDisabled" inputStream="test/wordCount" defaultScroller="myFileScroll" bucketSize="100"
+      batchSize="25" enabled="false" />
   </extension>
 
 

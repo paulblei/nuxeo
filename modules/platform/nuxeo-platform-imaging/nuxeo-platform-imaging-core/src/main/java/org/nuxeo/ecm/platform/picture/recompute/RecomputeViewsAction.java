@@ -19,6 +19,7 @@
  */
 package org.nuxeo.ecm.platform.picture.recompute;
 
+import static java.util.Objects.requireNonNullElse;
 import static org.nuxeo.ecm.core.bulk.BulkServiceImpl.STATUS_STREAM;
 import static org.nuxeo.ecm.platform.picture.PictureViewsHelper.NOTHING_TO_PROCESS_MESSAGE;
 import static org.nuxeo.lib.stream.computation.AbstractComputation.INPUT_1;
@@ -56,6 +57,9 @@ public class RecomputeViewsAction implements StreamProcessorTopology {
 
     public static final String ACTION_NAME = "recomputeViews";
 
+
+    public static final String ACTION_NAME_BG = "recomputeViewsBackground";
+
     // @since 11.1
     public static final String ACTION_FULL_NAME = "bulk/" + ACTION_NAME;
 
@@ -63,9 +67,10 @@ public class RecomputeViewsAction implements StreamProcessorTopology {
 
     @Override
     public Topology getTopology(Map<String, String> options) {
+        String actionName = "bulk/" + requireNonNullElse(options.get("processorName"), ACTION_NAME);
         return Topology.builder()
-                       .addComputation(RecomputeViewsComputation::new, //
-                               Arrays.asList(INPUT_1 + ":" + ACTION_FULL_NAME, OUTPUT_1 + ":" + STATUS_STREAM))
+                       .addComputation(() -> new RecomputeViewsComputation(actionName), //
+                               Arrays.asList(INPUT_1 + ":" + actionName, OUTPUT_1 + ":" + STATUS_STREAM))
                        .build();
     }
 
@@ -81,6 +86,10 @@ public class RecomputeViewsAction implements StreamProcessorTopology {
         protected String xpath;
 
         protected String lastPictureViewsStatus;
+
+        public RecomputeViewsComputation(String name) {
+            super(name);
+        }
 
         public RecomputeViewsComputation() {
             super(ACTION_FULL_NAME);

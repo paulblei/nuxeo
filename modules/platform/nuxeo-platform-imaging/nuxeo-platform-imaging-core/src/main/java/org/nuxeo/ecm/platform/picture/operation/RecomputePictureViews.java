@@ -19,6 +19,7 @@
 package org.nuxeo.ecm.platform.picture.operation;
 
 import static org.nuxeo.ecm.platform.picture.recompute.RecomputeViewsAction.ACTION_NAME;
+import static org.nuxeo.ecm.platform.picture.recompute.RecomputeViewsAction.ACTION_NAME_BG;
 import static org.nuxeo.ecm.platform.picture.recompute.RecomputeViewsAction.PARAM_XPATH;
 
 import org.nuxeo.ecm.automation.OperationContext;
@@ -58,7 +59,7 @@ public class RecomputePictureViews {
     public void run() {
         BulkService service = Framework.getService(BulkService.class);
         String username = ctx.getPrincipal().getName();
-        service.submit(new BulkCommand.Builder(ACTION_NAME, query, username)
+        service.submit(new BulkCommand.Builder(ACTION_NAME_BG, query, username).orElseAction(ACTION_NAME)
                 .param(PARAM_XPATH, "file:content")
                 .build());
     }

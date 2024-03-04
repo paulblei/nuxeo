@@ -6,6 +6,9 @@
   <extension target="org.nuxeo.ecm.core.bulk" point="actions">
     <action name="recomputeViews" inputStream="bulk/recomputeViews" bucketSize="10" batchSize="1" httpEnabled="false"
       validationClass="org.nuxeo.ecm.platform.picture.recompute.RecomputeViewsActionValidation" />
+    <action name="recomputeViewsBackground" inputStream="bulk/recomputeViewsBackground" bucketSize="10" batchSize="1"
+      httpEnabled="false" enabled="${nuxeo.bulk.action.recomputeViewsBackground.enabled:=false}"
+      validationClass="org.nuxeo.ecm.platform.picture.recompute.RecomputeViewsActionValidation" />
   </extension>
 
   <extension target="org.nuxeo.runtime.stream.service" point="streamProcessor">
@@ -13,6 +16,14 @@
       defaultConcurrency="${nuxeo.bulk.action.recomputeViews.defaultConcurrency:=2}"
       defaultPartitions="${nuxeo.bulk.action.recomputeViews.defaultPartitions:=6}">
       <policy name="default" maxRetries="${nuxeo.bulk.action.recomputeViews.maxRetries:=1}" delay="5s" maxDelay="10s" continueOnFailure="true" />
+    </streamProcessor>
+    <streamProcessor name="recomputeViewsBackground"
+      class="org.nuxeo.ecm.platform.picture.recompute.RecomputeViewsAction"
+      enabled="${nuxeo.bulk.action.recomputeViewsBackground.enabled:=false}"
+      defaultConcurrency="${nuxeo.bulk.action.recomputeViewsBackground.defaultConcurrency:=2}"
+      defaultPartitions="${nuxeo.bulk.action.recomputeViewsBackground.defaultPartitions:=12}">
+      <policy name="default" maxRetries="${nuxeo.bulk.action.recomputeViewsBackground.maxRetries:=1}" delay="5s"
+        maxDelay="10s" continueOnFailure="true" />
     </streamProcessor>
   </extension>
 
