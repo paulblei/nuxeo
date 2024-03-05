@@ -19,19 +19,28 @@
  */
 package org.nuxeo.ecm.core.api.impl.blob;
 
+import static org.apache.commons.io.output.NullOutputStream.NULL_OUTPUT_STREAM;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Serializable;
 import java.net.URL;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 /**
- * Blob backed by a URL. Its length is -1. Note that the encoding is not detected even for an HTTP URL.
+ * Blob backed by a URL. Note that the encoding is not detected even for an HTTP URL.
  */
 public class URLBlob extends AbstractBlob implements Serializable {
+
+    private static final Logger log = LogManager.getLogger(URLBlob.class);
 
     private static final long serialVersionUID = 1L;
 
     protected final URL url;
+
+    protected volatile Long length = null;
 
     public URLBlob(URL url) {
         this(url, null, null);
@@ -53,6 +62,24 @@ public class URLBlob extends AbstractBlob implements Serializable {
     @Override
     public InputStream getStream() throws IOException {
         return url.openStream();
+    }
+
+    @Override
+    public long getLength() {
+        if (this.length == null) {
+            synchronized (this) {
+                if (this.length == null) {
+                    // Content-Length from URL connection is not reliable
+                    try (InputStream in = getStream()) {
+                        this.length = in.transferTo(NULL_OUTPUT_STREAM);
+                    } catch (IOException e) {
+                        log.error("Cannot get blob length for url: " + url, e);
+                        this.length = -1L;
+                    }
+                }
+            }
+        }
+        return this.length;
     }
 
 }

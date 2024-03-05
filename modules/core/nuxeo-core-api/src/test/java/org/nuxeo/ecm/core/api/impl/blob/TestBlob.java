@@ -112,7 +112,7 @@ public class TestBlob {
         Blob blob = new URLBlob(url);
         assertNull(blob.getMimeType());
         assertNull(blob.getEncoding());
-        assertEquals(-1, blob.getLength());
+        assertEquals(1500000, blob.getLength());
 
         String s1 = blob.getString();
         String s2 = blob.getString();

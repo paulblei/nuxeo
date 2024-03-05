@@ -61,6 +61,7 @@ import java.util.stream.Collectors;
 
 import javax.inject.Inject;
 
+import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.SystemUtils;
 import org.apache.commons.lang3.mutable.MutableObject;
 import org.junit.Ignore;
@@ -2980,7 +2981,7 @@ public class TestSQLRepositoryAPI {
         assertEquals("manifest.mf", blob.getFilename());
         assertNull(blob.getEncoding());
         assertEquals("java/manifest", blob.getMimeType());
-        // do not assert URLBlob's length, it is not computed
+        assertEquals(IOUtils.toByteArray(url).length, blob.getLength());
     }
 
     @Test
