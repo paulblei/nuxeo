@@ -11,9 +11,9 @@ updates:
       # Major security updates
       - dependency-name: "org.jboss.remoting:jboss-remoting"
         versions: ["[3.0,)"]
-      # Minor update that breaks compatibility
+      # Minor update that might break compatibility
       - dependency-name: "com.h2database:h2"
-        versions: ["[2.2,)"]
+        versions: ["[2.3,)"]
 
       # Minor security update for Elasticsearch
       - dependency-name: "org.elasticsearch*:*"
@@ -44,9 +44,9 @@ updates:
         versions: ["[3.0,)"]
       - dependency-name: "org.hibernate*:*"
         versions: ["[4.0,)"]
-      # Minor update that breaks compatibility
+      # Minor update that might break compatibility
       - dependency-name: "com.h2database:h2"
-        versions: ["[2.2,)"]
+        versions: ["[2.3,)"]
 
       # Minor security update for Elasticsearch
       - dependency-name: "org.elasticsearch*:*"
