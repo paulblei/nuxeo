@@ -18,6 +18,9 @@
  */
 package org.nuxeo.ecm.blob.s3;
 
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static java.util.concurrent.TimeUnit.SECONDS;
+import static org.awaitility.Awaitility.await;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
@@ -338,6 +341,9 @@ public class TestS3BlobStoreTracing {
         BlobUpdateContext blobUpdateCtx = new BlobUpdateContext(blobInfo.key).withColdStorageClass(true);
         bp.updateBlob(blobUpdateCtx);
         TransactionHelper.commitOrRollbackTransaction();
+        await().atMost(5, SECONDS).pollInterval(200, MILLISECONDS).untilAsserted(() -> {
+            assertFalse(((BlobStoreBlobProvider) bp).store.hasDefaultStorageClass(blobInfo.key));
+        });
 
         Blob blob = bp.readBlob(blobInfo);
         BlobStatus status = bp.getStatus((ManagedBlob) blob);

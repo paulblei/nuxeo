@@ -838,7 +838,8 @@ public class S3BlobStore extends AbstractBlobStore {
                 logTrace("->", "updateStorageClass");
                 logTrace("hnote right: " + bucketKey + "@" + versionId);
                 logTrace("rnote right: " + storageClass);
-                amazonS3.copyObject(copyObjectRequest);
+                config.transferManager.copy(copyObjectRequest, amazonS3, null);
+                // No need to waitForCopyResult when changing storage class
             }
             if (blobUpdateContext.restoreForDuration != null) {
                 Duration duration = blobUpdateContext.restoreForDuration.duration;

@@ -18,10 +18,14 @@
  */
 package org.nuxeo.ecm.blob.s3;
 
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static java.util.concurrent.TimeUnit.SECONDS;
+import static org.awaitility.Awaitility.await;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.io.IOException;
 import java.time.Duration;
@@ -82,6 +86,18 @@ public class TestS3BlobStoreColdStorage {
         assertTrue(bp.isColdStorageMode());
     }
 
+    protected void sendToColdStorage(String key) {
+        try {
+            BlobUpdateContext blobUpdateCtx = new BlobUpdateContext(key).withColdStorageClass(true);
+            bp.updateBlob(blobUpdateCtx);
+            await().atMost(5, SECONDS).pollInterval(200, MILLISECONDS).untilAsserted(() -> {
+                assertFalse(bs.hasDefaultStorageClass(key));
+            });
+        } catch (IOException e) {
+            fail(e.getMessage());
+        }
+    }
+
     @Test
     public void testHasDefaultStorageClass() throws IOException {
         // Create a blob
@@ -89,10 +105,7 @@ public class TestS3BlobStoreColdStorage {
         blobInfo.key = bp.writeBlob(new BlobContext(Blobs.createBlob("hello blob"), "id", XPATH));
         assertTrue(bs.hasDefaultStorageClass(blobInfo.key));
 
-        // Send to cold storage
-        BlobUpdateContext blobUpdateCtx = new BlobUpdateContext(blobInfo.key).withColdStorageClass(true);
-        bp.updateBlob(blobUpdateCtx);
-        assertFalse(bs.hasDefaultStorageClass(blobInfo.key));
+        sendToColdStorage(blobInfo.key);
     }
 
     @Test
@@ -101,9 +114,7 @@ public class TestS3BlobStoreColdStorage {
         BlobInfo blobInfo = new BlobInfo();
         blobInfo.key = bp.writeBlob(new BlobContext(Blobs.createBlob("bar"), "id", XPATH));
 
-        // Send to cold storage
-        BlobUpdateContext blobUpdateCtx = new BlobUpdateContext(blobInfo.key).withColdStorageClass(true);
-        bp.updateBlob(blobUpdateCtx);
+        sendToColdStorage(blobInfo.key);
 
         // check it is sent to cold storage
         BlobStatus status = getBlobStatus(blobInfo);
@@ -135,8 +146,7 @@ public class TestS3BlobStoreColdStorage {
         // Send to cold storage the copy in destination
         BlobInfo blobInfo = new BlobInfo();
         blobInfo.key = key;
-        BlobUpdateContext blobUpdateCtx = new BlobUpdateContext(blobInfo.key).withColdStorageClass(true);
-        bp.updateBlob(blobUpdateCtx);
+        sendToColdStorage(blobInfo.key);
 
         // Check it is sent to cold storage
         BlobStatus status = getBlobStatus(blobInfo);
@@ -186,6 +196,9 @@ public class TestS3BlobStoreColdStorage {
 
         // commit transaction and check status
         TransactionHelper.commitOrRollbackTransaction();
+        await().atMost(5, SECONDS).pollInterval(200, MILLISECONDS).untilAsserted(() -> {
+            assertFalse(bs.hasDefaultStorageClass(blobInfo.key));
+        });
         status = getBlobStatus(blobInfo);
         assertFalse(status.isDownloadable());
         assertEquals(StorageClass.Glacier.toString(), status.getStorageClass());
