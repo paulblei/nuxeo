@@ -136,8 +136,8 @@ public class TestSetBlobLengthAction {
     public void testSetBlobLength() throws InterruptedException {
         String nxql = "SELECT * from File";
         dumpDocs("BEFORE", nxql);
-        // file-missing-length + file-missing-length proxy + file-without-blob + url-blob-file
-        assertEquals(4, getDocsWithoutBlobLength());
+        // file-missing-length + file-missing-length proxy + file-without-blob
+        assertEquals(3, getDocsWithoutBlobLength());
         String commandId = service.submit(
                 new Builder(ACTION_NAME, nxql, "Administrator").repository(session.getRepositoryName())
                                                                .param("force", true)
