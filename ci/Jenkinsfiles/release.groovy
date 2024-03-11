@@ -27,7 +27,9 @@ void promoteDockerImage(String dockerRegistry, String imageName, String buildVer
   String releaseImage = "${dockerRegistry}/${DOCKER_NAMESPACE}/${imageName}:${releaseVersion}"
   String latestImage = "${dockerRegistry}/${DOCKER_NAMESPACE}/${imageName}:${latestVersion}"
 
-  nxDocker.copy(from: buildImage, tos: [releaseImage, latestImage])
+  // the source image is multi-platform, so the manifest is a list of images
+  // copy all of the images in the list and the list itself
+  nxDocker.copy(from: buildImage, tos: [releaseImage, latestImage], options: '--all')
 }
 
 pipeline {
