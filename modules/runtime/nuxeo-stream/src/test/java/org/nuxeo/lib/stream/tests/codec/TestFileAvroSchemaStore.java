@@ -20,6 +20,7 @@ package org.nuxeo.lib.stream.tests.codec;
 
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import static org.nuxeo.lib.stream.tests.TestUtils.getBuildDirectory;
 
 import java.io.File;
 import java.io.IOException;
@@ -37,7 +38,7 @@ import org.nuxeo.lib.stream.codec.FileAvroSchemaStore;
  */
 public class TestFileAvroSchemaStore {
     @Rule
-    public TemporaryFolder folder = new TemporaryFolder(new File("target"));
+    public TemporaryFolder folder = new TemporaryFolder(new File(getBuildDirectory()));
 
     @Test
     public void testAvroEvolution() throws IOException {
