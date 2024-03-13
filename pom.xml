@@ -4221,6 +4221,12 @@
         <artifactId>libthrift</artifactId>
         <version>0.19.0</version>
       </dependency>
+      <!-- transitive dependency of opencensus-exporter-trace-datadog to upgrade -->
+      <dependency>
+        <groupId>com.google.auto.value</groupId>
+        <artifactId>auto-value</artifactId>
+        <version>1.10.4</version>
+      </dependency>
 
       <dependency>
         <groupId>net.jodah</groupId>
