@@ -55,6 +55,9 @@ public class AutomationScriptingServiceImpl implements AutomationScriptingServic
 
     private static final Logger log = LogManager.getLogger(AutomationScriptingServiceImpl.class);
 
+    /** @since 2023.9 */
+    public static final String OPTIMISTIC_TYPES_ENABLED_PROPERTY_KEY = "nuxeo.automation.scripting.optimistic.types.enabled";
+
     protected final ScriptEngine engine = getScriptEngine();
 
     protected volatile CompiledScript mapperScript;
@@ -192,12 +195,16 @@ public class AutomationScriptingServiceImpl implements AutomationScriptingServic
     protected ScriptEngine getScriptEngine(boolean cache, boolean filter) {
         NashornScriptEngineFactory nashorn = new NashornScriptEngineFactory();
         String[] args = cache
-                ? new String[] { "-strict", "--optimistic-types=false", "--persistent-code-cache",
-                        "--class-cache-size=50" }
+                ? new String[] { "-strict", "--optimistic-types=" + isOptimisticTypesEnabled(),
+                        "--persistent-code-cache", "--class-cache-size=50" }
                 : new String[] { "-strict" };
         ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
         ClassFilter classFilter = filter ? getClassFilter() : null;
         return nashorn.getScriptEngine(args, classLoader, classFilter);
+    }
+
+    protected boolean isOptimisticTypesEnabled() {
+        return Boolean.parseBoolean(Framework.getProperty(OPTIMISTIC_TYPES_ENABLED_PROPERTY_KEY));
     }
 
     protected ClassFilter getClassFilter() {

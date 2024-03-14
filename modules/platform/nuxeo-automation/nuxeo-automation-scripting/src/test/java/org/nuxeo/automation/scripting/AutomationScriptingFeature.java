@@ -18,10 +18,13 @@ package org.nuxeo.automation.scripting;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Map;
 
 import javax.inject.Inject;
 
 import org.nuxeo.automation.scripting.api.AutomationScriptingService;
+import org.nuxeo.automation.scripting.internals.AutomationScriptingServiceImpl;
+import org.nuxeo.automation.scripting.internals.ScriptingOperationImpl;
 import org.nuxeo.ecm.core.api.CoreSession;
 import org.nuxeo.ecm.platform.test.PlatformFeature;
 import org.nuxeo.runtime.test.runner.Deploy;
@@ -72,6 +75,21 @@ public class AutomationScriptingFeature implements RunnerFeature {
             throws Exception {
         try (AutomationScriptingService.Session context = scripting.get(session)) {
             return typeof.cast(context.run(load(location)));
+        }
+    }
+
+    /**
+     * Runs {@link ScriptingOperationImpl} with @{@link org.nuxeo.runtime.test.runner.WithFrameworkProperty} awareness.
+     *
+     * @since 2023.9
+     */
+    public void runScriptWithFrameworkProperties(Object input, Map<String, Object> params, String location,
+            CoreSession session) throws Exception {
+        // The ScriptEngine is final and instantiated before annotations are taken into account. We need a new one.
+        try (AutomationScriptingService.Session s = new AutomationScriptingServiceImpl().get(session)) {
+            @SuppressWarnings("ConstantConditions")
+            var scriptInputStream = getClass().getClassLoader().getResource(location).openStream();
+            s.handleof(scriptInputStream, ScriptingOperationImpl.Runnable.class).run(input, params);
         }
     }
 

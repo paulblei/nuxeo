@@ -72,6 +72,7 @@ import org.nuxeo.ecm.core.api.impl.DocumentModelListImpl;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
+import org.nuxeo.runtime.test.runner.WithFrameworkProperty;
 
 /**
  * @since 7.2
@@ -777,6 +778,16 @@ public class TestScriptRunnerInfrastructure {
             String string = blob.getString();
             assertTrue(string, string.startsWith("{'uuid': "));
         }
+    }
+
+    @Test
+    @WithFrameworkProperty(name = "nuxeo.automation.scripting.optimistic.types.enabled", value = "true")
+    public void testOptimisticTypesConfiguration() throws Exception {
+        DocumentModel doc = session.createDocumentModel("/", "file", "FileWithDocumentFields");
+        doc.setPropertyValue("df:documentIds", (Serializable) List.of(session.getRootDocument().getId()));
+        doc = session.createDocument(doc);
+
+        feature.runScriptWithFrameworkProperties(doc, Map.of(), "testRemoveItemFromListProperty.js", session);
     }
 
 }
