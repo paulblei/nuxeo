@@ -31,6 +31,8 @@ import org.nuxeo.ecm.automation.core.util.Properties;
 import org.nuxeo.ecm.core.api.CoreSession;
 import org.nuxeo.ecm.core.api.DocumentModel;
 import org.nuxeo.ecm.core.api.DocumentRef;
+import org.nuxeo.ecm.core.api.pathsegment.PathSegmentService;
+import org.nuxeo.runtime.api.Framework;
 
 /**
  * Create a document into the input document
@@ -65,7 +67,8 @@ public class CreateDocument {
         if (name == null) {
             name = "Untitled";
         }
-        DocumentModel newDoc = session.createDocumentModel(doc.getPathAsString(), name, type);
+        var pss = Framework.getService(PathSegmentService.class);
+        DocumentModel newDoc = session.createDocumentModel(doc.getPathAsString(), pss.generatePathSegment(name), type);
         if (content != null) {
             DocumentHelper.setProperties(session, newDoc, content);
         }
