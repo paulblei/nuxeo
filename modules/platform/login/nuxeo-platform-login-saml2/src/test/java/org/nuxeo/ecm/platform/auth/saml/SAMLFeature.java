@@ -26,7 +26,11 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.net.URI;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.zip.Inflater;
 import java.util.zip.InflaterInputStream;
 
@@ -144,5 +148,13 @@ public class SAMLFeature implements RunnerFeature {
                               .findFirst()
                               .orElseThrow(() -> new AssertionError(
                                       String.format("Unable to find %s in the query parameter", paramName)));
+    }
+
+    public static <T> Function<T, Object> format(Function<T, Instant> f) {
+        Function<Instant, Object> format = i -> {
+            var formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC);
+            return formatter.format(i);
+        };
+        return format.compose(f);
     }
 }

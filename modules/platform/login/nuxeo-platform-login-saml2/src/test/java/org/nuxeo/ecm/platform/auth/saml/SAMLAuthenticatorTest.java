@@ -28,16 +28,14 @@ import static org.nuxeo.ecm.platform.auth.saml.SAMLConfiguration.SKEW_TIME_MS;
 import static org.nuxeo.ecm.platform.auth.saml.SAMLFeature.assertSAMLMessage;
 import static org.nuxeo.ecm.platform.auth.saml.SAMLFeature.encodeSAMLMessage;
 import static org.nuxeo.ecm.platform.auth.saml.SAMLFeature.extractQueryParam;
+import static org.nuxeo.ecm.platform.auth.saml.SAMLFeature.format;
 import static org.nuxeo.ecm.platform.auth.saml.SAMLUtils.SAML_SESSION_KEY;
 import static org.nuxeo.ecm.platform.auth.saml.processor.binding.SAMLInboundBinding.SAML_REQUEST;
 import static org.nuxeo.ecm.platform.auth.saml.processor.binding.SAMLInboundBinding.SAML_RESPONSE;
 import static org.nuxeo.ecm.platform.ui.web.auth.NXAuthConstants.LOGIN_ERROR;
 
 import java.time.Instant;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.UUID;
-import java.util.function.Function;
 
 import javax.inject.Inject;
 import javax.servlet.http.Cookie;
@@ -96,11 +94,6 @@ public class SAMLAuthenticatorTest {
         var redirectURL = responseHandler.getRedirect();
         assertTrue(redirectURL.startsWith("http://dummy/SSORedirect"));
 
-        Function<Instant, Object> format = i -> {
-            var formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC);
-            return formatter.format(i);
-        };
-
         var expected = new ExpectedSAMLMessage<>(
                 """
                         <saml2p:AuthnRequest xmlns:saml2p="urn:oasis:names:tc:SAML:2.0:protocol" AssertionConsumerServiceURL="null://null/nuxeo/home.html" Destination="http://dummy/SSORedirect" ID="%s" IssueInstant="%s" Version="2.0">
@@ -108,7 +101,7 @@ public class SAMLAuthenticatorTest {
                           <saml2p:NameIDPolicy Format="urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified"/>
                         </saml2p:AuthnRequest>
                         """,
-                AuthnRequest::getID, format.compose(AuthnRequest::getIssueInstant));
+                AuthnRequest::getID, format(AuthnRequest::getIssueInstant));
         var actual = extractQueryParam(redirectURL, SAML_REQUEST);
         assertSAMLMessage(expected, actual);
     }
@@ -127,7 +120,7 @@ public class SAMLAuthenticatorTest {
                           <saml2p:NameIDPolicy Format="urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified"/>
                         </saml2p:AuthnRequest>
                         """,
-                AuthnRequest::getID, AuthnRequest::getIssueInstant);
+                AuthnRequest::getID, format(AuthnRequest::getIssueInstant));
         var actual = extractQueryParam(loginURL, SAML_REQUEST);
         assertSAMLMessage(expected, actual);
     }
@@ -278,7 +271,7 @@ public class SAMLAuthenticatorTest {
                           <saml2p:SessionIndex>sessionId</saml2p:SessionIndex>
                         </saml2p:LogoutRequest>
                         """,
-                LogoutRequest::getID, LogoutRequest::getIssueInstant);
+                LogoutRequest::getID, format(LogoutRequest::getIssueInstant));
         var actual = extractQueryParam(logoutURL, SAML_REQUEST);
         assertSAMLMessage(expected, actual);
     }
