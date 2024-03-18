@@ -162,7 +162,7 @@
     <okhttp.version>4.12.0</okhttp.version>
     <protobuf.java.version>3.25.3</protobuf.java.version>
     <opensaml.version>4.3.0</opensaml.version>
-    <quartz.version>2.4.0-rc2</quartz.version>
+    <quartz.version>2.5.0-rc1</quartz.version>
   </properties>
 
   <dependencyManagement>
