@@ -270,29 +270,29 @@ public class SignatureServiceImpl extends DefaultComponent implements SignatureS
         Map<String, Serializable> map;
         ListDiff listDiff;
         switch (disposition) {
-        case REPLACE:
-            // replace main blob
-            mbh.setBlob(signedBlob);
-            break;
-        case ARCHIVE:
-            // archive as attachment
-            originalBlob.setFilename(archiveFilename);
-            map = new HashMap<>();
-            map.put(FILES_FILE, (Serializable) originalBlob);
-            listDiff = new ListDiff();
-            listDiff.add(map);
-            doc.setPropertyValue(FILES_FILES, listDiff);
-            // and replace main blob
-            mbh.setBlob(signedBlob);
-            break;
-        case ATTACH:
-            // set as first attachment
-            map = new HashMap<>();
-            map.put(FILES_FILE, (Serializable) signedBlob);
-            listDiff = new ListDiff();
-            listDiff.insert(0, map);
-            doc.setPropertyValue(FILES_FILES, listDiff);
-            break;
+            case REPLACE:
+                // replace main blob
+                mbh.setBlob(signedBlob);
+                break;
+            case ARCHIVE:
+                // archive as attachment
+                originalBlob.setFilename(archiveFilename);
+                map = new HashMap<>();
+                map.put(FILES_FILE, (Serializable) originalBlob);
+                listDiff = new ListDiff();
+                listDiff.add(map);
+                doc.setPropertyValue(FILES_FILES, listDiff);
+                // and replace main blob
+                mbh.setBlob(signedBlob);
+                break;
+            case ATTACH:
+                // set as first attachment
+                map = new HashMap<>();
+                map.put(FILES_FILE, (Serializable) signedBlob);
+                listDiff = new ListDiff();
+                listDiff.insert(0, map);
+                doc.setPropertyValue(FILES_FILES, listDiff);
+                break;
         }
 
         return signedBlob;
