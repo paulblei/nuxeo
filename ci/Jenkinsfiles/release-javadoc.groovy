@@ -36,7 +36,7 @@ pipeline {
   }
   environment {
     NUXEO_BRANCH = "${params.NUXEO_BRANCH}"
-    MAVEN_ARGS = '-B -nsu -Dnuxeo.skip.enforcer=true -Pjavadoc -DadditionalJOption=-J-Xmx2g -DadditionalJOption=-J-Xms2g'
+    MAVEN_CLI_ARGS = '-B -nsu -Dnuxeo.skip.enforcer=true -Pjavadoc -DadditionalJOption=-J-Xmx2g -DadditionalJOption=-J-Xms2g'
     MAVEN_OPTS = "$MAVEN_OPTS -Xms4g -Xmx4g -XX:+TieredCompilation -XX:TieredStopAtLevel=1"
     VERSION = nxUtils.getVersion()
     JAVADOC_VERSION = getJavadocVersion(env.VERSION)
@@ -66,11 +66,11 @@ pipeline {
               Deploy Nuxeo ECM Javadoc
               ----------------------------------------
               Javadoc Version: ${JAVADOC_VERSION}"""
-              sh "mvn ${MAVEN_ARGS} site"
+              sh "mvn ${MAVEN_CLI_ARGS} site"
               if (!nxUtils.isDryRun()) {
                 // just deploy the aggregated site on root pom
                 // overwrite previous version by setting version to the major one
-                sh "mvn ${MAVEN_ARGS} site-deploy -N -Dnuxeo.platform.javadoc.version=${JAVADOC_VERSION}"
+                sh "mvn ${MAVEN_CLI_ARGS} site-deploy -N -Dnuxeo.platform.javadoc.version=${JAVADOC_VERSION}"
               }
             }
           }

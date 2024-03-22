@@ -27,7 +27,7 @@ testEnvironments = [
   'postgresql',
 ]
 
-String getMavenArgs() {
+String getMavenCLIArgs() {
   def args = '-B -nsu -Dnuxeo.skip.enforcer=true -P-nexus,nexus-private'
   if (!nxUtils.isPullRequest()) {
     args += ' -Prelease'
@@ -52,7 +52,7 @@ void runFunctionalTests(String baseDir, String tier) {
   try {
     retry(2) {
       echo "MAVEN_OPTS=$MAVEN_OPTS"
-      sh "mvn ${MAVEN_ARGS} -D${tier} -f ${baseDir}/pom.xml verify"
+      sh "mvn ${MAVEN_CLI_ARGS} -D${tier} -f ${baseDir}/pom.xml verify"
       nxUtils.lookupText(regexp: ".*ERROR.*(?=(?:\\n.*)*\\[.*FrameworkLoader\\] Nuxeo Platform is Trying to Shut Down)",
         fileSet: "ftests/**/log/server.log")
     }
@@ -118,7 +118,7 @@ def buildUnitTestStage(env) {
           // - for the given environment (see the customEnvironment profile in pom.xml):
           //   - in an alternative build directory
           //   - loading some test framework system properties
-          def mvnCommand = "mvn ${MAVEN_ARGS} -rf :nuxeo-core-parent test"
+          def mvnCommand = "mvn ${MAVEN_CLI_ARGS} -rf :nuxeo-core-parent test"
           mvnCommand += " -Dcustom.environment=${env} -Dcustom.environment.log.dir=target-${env}"
           mvnCommand += " -Dnuxeo.test.core=${env == 'mongodb' ? 'mongodb' : 'vcs'}"
 
@@ -226,7 +226,7 @@ pipeline {
     NUXEO_IMAGE_NAME = 'nuxeo'
     NUXEO_BENCHMARK_IMAGE_NAME = 'nuxeo-benchmark'
     MAVEN_OPTS = "$MAVEN_OPTS -XX:+TieredCompilation -XX:TieredStopAtLevel=1"
-    MAVEN_ARGS = getMavenArgs()
+    MAVEN_CLI_ARGS = getMavenCLIArgs()
     MAVEN_FAIL_ARGS = getMavenFailArgs()
     CURRENT_VERSION = getCurrentVersion()
     VERSION = nxUtils.getVersion()
@@ -265,7 +265,7 @@ pipeline {
           """
           sh """
             # root POM
-            mvn ${MAVEN_ARGS} -Pdistrib,docker versions:set -DnewVersion=${VERSION} -DgenerateBackupPoms=false
+            mvn ${MAVEN_CLI_ARGS} -Pdistrib,docker versions:set -DnewVersion=${VERSION} -DgenerateBackupPoms=false
             perl -i -pe 's|<nuxeo.platform.version>.*?</nuxeo.platform.version>|<nuxeo.platform.version>${VERSION}</nuxeo.platform.version>|' pom.xml
             perl -i -pe 's|org.nuxeo.ecm.product.version=.*|org.nuxeo.ecm.product.version=${VERSION}|' server/nuxeo-nxr-server/src/main/resources/templates/nuxeo.defaults
 
@@ -313,7 +313,7 @@ pipeline {
 
     stage('Build') {
       environment {
-        MAVEN_ARGS = "${MAVEN_ARGS} ${nxUtils.isPullRequest() ? '' : '-Pjavadoc -DadditionalJOption=-J-Xmx3g -DadditionalJOption=-J-Xms3g'}"
+        MAVEN_CLI_ARGS = "${MAVEN_CLI_ARGS} ${nxUtils.isPullRequest() ? '' : '-Pjavadoc -DadditionalJOption=-J-Xmx3g -DadditionalJOption=-J-Xms3g'}"
         MAVEN_OPTS = "${MAVEN_OPTS} ${nxUtils.isPullRequest() ? '-Xms6g -Xmx6g' : '-Xms3g -Xmx3g'}"
       }
       steps {
@@ -324,8 +324,8 @@ pipeline {
             Compile
             ----------------------------------------"""
             echo "MAVEN_OPTS=$MAVEN_OPTS"
-            sh "mvn ${MAVEN_ARGS} -V -T4C -DskipTests install"
-            sh "mvn ${MAVEN_ARGS} -f server/pom.xml -DskipTests install"
+            sh "mvn ${MAVEN_CLI_ARGS} -V -T4C -DskipTests install"
+            sh "mvn ${MAVEN_CLI_ARGS} -f server/pom.xml -DskipTests install"
           }
         }
       }
@@ -345,7 +345,7 @@ pipeline {
 
               dir('docker/nuxeo') {
                 echo 'Fetch locally built Nuxeo Tomcat Server with Maven'
-                sh "mvn ${MAVEN_ARGS} -T4C process-resources"
+                sh "mvn ${MAVEN_CLI_ARGS} -T4C process-resources"
 
                 echo "Build and push Nuxeo Docker image to internal Docker registry ${DOCKER_REGISTRY}"
                 sh 'skaffold build -f skaffold.yaml'
@@ -354,12 +354,12 @@ pipeline {
               // build packages defined in the pom and nuxeo-packages as it is needed when processing resources
               sh """
                 benchmark_packages=\$(sed -n '/<dependency>/,/<\\/dependency>/{//b;p}' docker/nuxeo-benchmark/pom.xml | grep artifactId | sed -E 's/\\s*<artifactId>(.*)<\\/artifactId>/:\\1/' |  tr '\\n' ','  | head -c -1);
-                mvn ${MAVEN_ARGS} -Pdistrib -pl :nuxeo-packages,\${benchmark_packages} install
+                mvn ${MAVEN_CLI_ARGS} -Pdistrib -pl :nuxeo-packages,\${benchmark_packages} install
               """
 
               dir('docker/nuxeo-benchmark') {
                 echo 'Fetch locally built Nuxeo Packages with Maven'
-                sh "mvn ${MAVEN_ARGS} -T4C process-resources"
+                sh "mvn ${MAVEN_CLI_ARGS} -T4C process-resources"
 
                 echo "Build and push Benchmark Docker image to internal Docker registry ${DOCKER_REGISTRY}"
                 sh 'skaffold build -f skaffold.yaml'
@@ -501,7 +501,7 @@ pipeline {
 
     stage('Run runtime unit tests') {
       environment {
-        MAVEN_ARGS = "${MAVEN_ARGS} ${MAVEN_FAIL_ARGS} -Dit.memory.argLine=\"-Xms4g -Xmx4g\""
+        MAVEN_CLI_ARGS = "${MAVEN_CLI_ARGS} ${MAVEN_FAIL_ARGS} -Dit.memory.argLine=\"-Xms4g -Xmx4g\""
         MAVEN_OPTS = "$MAVEN_OPTS -Xms2g -Xmx2g"
       }
       steps {
@@ -522,7 +522,7 @@ pipeline {
                   dir('modules/runtime') {
                     retry(2) {
                       sh """
-                        mvn ${MAVEN_ARGS} \
+                        mvn ${MAVEN_CLI_ARGS} \
                           -Pkafka -Dkafka.bootstrap.servers=${kafkaHost} \
                           -Dkafka.version=3.4.1 \
                           install
@@ -541,7 +541,7 @@ pipeline {
 
     stage('Run unit tests') {
       environment {
-        MAVEN_ARGS = "${MAVEN_ARGS} ${MAVEN_FAIL_ARGS} -Dit.memory.argLine=\"-Xms4g -Xmx4g\""
+        MAVEN_CLI_ARGS = "${MAVEN_CLI_ARGS} ${MAVEN_FAIL_ARGS} -Dit.memory.argLine=\"-Xms4g -Xmx4g\""
         MAVEN_OPTS = "$MAVEN_OPTS -Xms2g -Xmx2g"
       }
       steps {
@@ -557,7 +557,7 @@ pipeline {
 
     stage('Run server unit tests') {
       environment {
-        MAVEN_ARGS = "${MAVEN_ARGS} ${MAVEN_FAIL_ARGS} -Dit.memory.argLine=\"-Xms4g -Xmx4g\""
+        MAVEN_CLI_ARGS = "${MAVEN_CLI_ARGS} ${MAVEN_FAIL_ARGS} -Dit.memory.argLine=\"-Xms4g -Xmx4g\""
         MAVEN_OPTS = "$MAVEN_OPTS -Xms2g -Xmx2g"
       }
       steps {
@@ -570,7 +570,7 @@ pipeline {
             // run server tests
             dir('server') {
               echo "MAVEN_OPTS=$MAVEN_OPTS"
-              sh "mvn ${MAVEN_ARGS} test"
+              sh "mvn ${MAVEN_CLI_ARGS} test"
             }
           }
         }
@@ -590,7 +590,7 @@ pipeline {
             ----------------------------------------
             Package
             ----------------------------------------"""
-            sh "mvn ${MAVEN_ARGS} -Dnuxeo.skip.enforcer=false -f packages/pom.xml -DskipTests install"
+            sh "mvn ${MAVEN_CLI_ARGS} -Dnuxeo.skip.enforcer=false -f packages/pom.xml -DskipTests install"
           }
         }
       }
@@ -598,7 +598,7 @@ pipeline {
 
     stage('Run "dev" functional tests') {
       environment {
-        MAVEN_ARGS = "${MAVEN_ARGS} ${MAVEN_FAIL_ARGS} -Dit.memory.argLine=\"-Xms2g -Xmx2g\""
+        MAVEN_CLI_ARGS = "${MAVEN_CLI_ARGS} ${MAVEN_FAIL_ARGS} -Dit.memory.argLine=\"-Xms2g -Xmx2g\""
         MAVEN_OPTS = "$MAVEN_OPTS -Xms2g -Xmx2g"
         NX_JAVA_OPTS = "\$JAVA_OPTS -Xms2g -Xmx2g"
       }
@@ -688,12 +688,12 @@ pipeline {
               sh './prepare-patches'
             }
             sh """
-              mvn ${MAVEN_ARGS} -Pdistrib -DskipTests deploy
-              mvn ${MAVEN_ARGS} -f parent/pom.xml deploy
+              mvn ${MAVEN_CLI_ARGS} -Pdistrib -DskipTests deploy
+              mvn ${MAVEN_CLI_ARGS} -f parent/pom.xml deploy
 
               # update back nuxeo-parent version to CURRENT_VERSION version
-              mvn ${MAVEN_ARGS} -f parent/pom.xml versions:set -DnewVersion=${CURRENT_VERSION} -DgenerateBackupPoms=false
-              mvn ${MAVEN_ARGS} -f parent/pom.xml deploy
+              mvn ${MAVEN_CLI_ARGS} -f parent/pom.xml versions:set -DnewVersion=${CURRENT_VERSION} -DgenerateBackupPoms=false
+              mvn ${MAVEN_CLI_ARGS} -f parent/pom.xml deploy
             """
           }
         }

@@ -41,7 +41,7 @@ pipeline {
     // force ${HOME}=/root - for an unexplained reason, ${HOME} is resolved as /home/jenkins though sh 'env' shows HOME=/root
     HOME = '/root'
     MAVEN_OPTS = "$MAVEN_OPTS -Xms3g -Xmx3g -XX:+TieredCompilation -XX:TieredStopAtLevel=1"
-    MAVEN_ARGS = '-B -nsu -Dnuxeo.skip.enforcer=true -DadditionalJOption=-J-Xmx3g -DadditionalJOption=-J-Xms3g'
+    MAVEN_CLI_ARGS = '-B -nsu -Dnuxeo.skip.enforcer=true -DadditionalJOption=-J-Xmx3g -DadditionalJOption=-J-Xms3g'
     VERSION = nxUtils.getVersion()
     // jx step helm install's --name and --namespace options require alphabetic chars to be lowercase
     PREVIEW_NAMESPACE = "nuxeo-preview-${BRANCH_NAME.toLowerCase()}"
@@ -75,7 +75,7 @@ pipeline {
           """
           sh """
             # root POM
-            mvn ${MAVEN_ARGS} -Pdistrib,docker versions:set -DnewVersion=${VERSION} -DgenerateBackupPoms=false
+            mvn ${MAVEN_CLI_ARGS} -Pdistrib,docker versions:set -DnewVersion=${VERSION} -DgenerateBackupPoms=false
             perl -i -pe 's|<nuxeo.platform.version>.*?</nuxeo.platform.version>|<nuxeo.platform.version>${VERSION}</nuxeo.platform.version>|' pom.xml
             perl -i -pe 's|org.nuxeo.ecm.product.version=.*|org.nuxeo.ecm.product.version=${VERSION}|' server/nuxeo-nxr-server/src/main/resources/templates/nuxeo.defaults
           """
@@ -95,8 +95,8 @@ pipeline {
             Build Javadoc
             ----------------------------------------"""
             echo "MAVEN_OPTS=$MAVEN_OPTS"
-            sh "mvn ${MAVEN_ARGS} -V -Pjavadoc -DskipTests install"
-            sh "mvn ${MAVEN_ARGS} -f server/pom.xml -Pjavadoc -DskipTests install"
+            sh "mvn ${MAVEN_CLI_ARGS} -V -Pjavadoc -DskipTests install"
+            sh "mvn ${MAVEN_CLI_ARGS} -f server/pom.xml -Pjavadoc -DskipTests install"
           }
         }
       }
@@ -113,7 +113,7 @@ pipeline {
             ----------------------------------------
             Generate Nuxeo ECM Javadoc
             ----------------------------------------"""
-            sh "mvn ${MAVEN_ARGS} -Pjavadoc site"
+            sh "mvn ${MAVEN_CLI_ARGS} -Pjavadoc site"
           }
         }
       }

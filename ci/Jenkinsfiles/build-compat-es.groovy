@@ -38,7 +38,7 @@ pipeline {
     HOME = '/root'
     CURRENT_NAMESPACE = nxK8s.getCurrentNamespace()
     NUXEO_BRANCH = "${params.NUXEO_BRANCH}"
-    MAVEN_ARGS = '-B -nsu -Dnuxeo.skip.enforcer=true -P-nexus,nexus-private'
+    MAVEN_CLI_ARGS = '-B -nsu -Dnuxeo.skip.enforcer=true -P-nexus,nexus-private'
     TEST_NAMESPACE = "$CURRENT_NAMESPACE-nuxeo-unit-tests-$BUILD_NUMBER-mongodb-es".toLowerCase()
     TEST_SERVICE_DOMAIN_SUFFIX = 'svc.cluster.local'
     TEST_KAFKA_K8S_OBJECT = 'kafka'
@@ -82,7 +82,7 @@ pipeline {
             sh "touch ${HOME}/nuxeo-test-${REPOSITORY_BACKEND}.properties"
             echo "MAVEN_OPTS=$MAVEN_OPTS"
             sh """
-              mvn ${MAVEN_ARGS} -V -T2C \
+              mvn ${MAVEN_CLI_ARGS} -V -T2C \
                 -DskipTests \
                 -Dcustom.environment=${REPOSITORY_BACKEND} \
                 -Dcustom.environment.log.dir=target-${REPOSITORY_BACKEND} \
@@ -95,7 +95,7 @@ pipeline {
 
     stage('Run mongodb unit tests') {
       environment {
-        MAVEN_ARGS = "${MAVEN_ARGS} -Dit.memory.argLine=\"-Xms4g -Xmx4g\""
+        MAVEN_CLI_ARGS = "${MAVEN_CLI_ARGS} -Dit.memory.argLine=\"-Xms4g -Xmx4g\""
         MAVEN_OPTS = "$MAVEN_OPTS -Xms2g -Xmx2g"
       }
       steps {
@@ -133,7 +133,7 @@ pipeline {
                   //   - in an alternative build directory
                   //   - loading some test framework system properties
                   def mvnCommand = """
-                    mvn ${MAVEN_ARGS} -Prelease \
+                    mvn ${MAVEN_CLI_ARGS} -Prelease \
                       -rf :nuxeo-core-parent \
                       -Dcustom.environment=${REPOSITORY_BACKEND} \
                       -Dcustom.environment.log.dir=target-${REPOSITORY_BACKEND} \
