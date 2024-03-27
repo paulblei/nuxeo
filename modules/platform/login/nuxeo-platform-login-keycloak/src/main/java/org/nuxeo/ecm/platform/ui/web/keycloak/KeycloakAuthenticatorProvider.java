@@ -1,5 +1,5 @@
 /*
- * (C) Copyright 2015 Nuxeo SA (http://nuxeo.com/) and others.
+ * (C) Copyright 2015-2024 Nuxeo SA (http://nuxeo.com/) and others.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -59,10 +59,8 @@ public class KeycloakAuthenticatorProvider {
         Request request = deploymentResult.getRequest();
         CatalinaHttpFacade facade = deploymentResult.getFacade();
 
-        // Register the deployment to refresh it
         nodesRegistrationManagement.tryRegister(resolvedDeployment);
 
-        // And return authenticator
         return new KeycloakRequestAuthenticator(request, httpServletResponse, facade, resolvedDeployment);
     }
 
@@ -73,7 +71,6 @@ public class KeycloakAuthenticatorProvider {
         if (!deploymentResult.isOk()) {
             return null;
         }
-
         resolvedDeployment = DeploymentResult.getKeycloakDeployment();
         Request request = deploymentResult.getRequest();
         String redirecResource = getRedirectResource(request);
