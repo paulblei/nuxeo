@@ -173,6 +173,11 @@ public class TestKeycloakAuthenticationPlugin {
         KeycloakAuthenticationPlugin keycloakAuthenticationPlugin = new KeycloakAuthenticationPlugin();
         initPlugin(keycloakAuthenticationPlugin);
 
+        KeycloakAuthenticatorProvider spyAuthProvider = Mockito.spy(
+                keycloakAuthenticationPlugin.keycloakAuthenticatorProvider);
+        Mockito.doReturn("wink").when(spyAuthProvider).getIdTokenHint();
+        keycloakAuthenticationPlugin.keycloakAuthenticatorProvider = spyAuthProvider;
+
         // We'll check the response is marked committed
         Mockito.when(responseMock.getCoyoteResponse()).thenReturn(coyoteResponseMock);
 
@@ -182,7 +187,7 @@ public class TestKeycloakAuthenticationPlugin {
         assertNotNull(result);
         assertEquals(true, result);
 
-        String location = "https://example.com/auth/realms/demo/protocol/openid-connect/logout?client_id=customer-portal&post_logout_redirect_uri=https://example.com/foo/home.html";
+        String location = "https://example.com/auth/realms/demo/protocol/openid-connect/logout?post_logout_redirect_uri=https%3A%2F%2Fexample.com%2Ffoo%2Fhome.html&id_token_hint=wink";
         Mockito.verify(responseMock).sendRedirect(location);
     }
 

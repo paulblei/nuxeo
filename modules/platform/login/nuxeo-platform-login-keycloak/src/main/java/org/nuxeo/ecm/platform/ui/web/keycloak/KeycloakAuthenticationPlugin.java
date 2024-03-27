@@ -67,7 +67,7 @@ public class KeycloakAuthenticationPlugin
 
     private String keycloakConfigFile = PROTOCOL_CLASSPATH + "keycloak.json";
 
-    private KeycloakAuthenticatorProvider keycloakAuthenticatorProvider;
+    protected KeycloakAuthenticatorProvider keycloakAuthenticatorProvider;
 
     private ThreadLocal<KeycloakRequestAuthenticator> localKeycloakAuthenticator = new ThreadLocal<>();
 
