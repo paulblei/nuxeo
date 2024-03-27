@@ -207,8 +207,8 @@ public class TestKeycloakAuthenticationPlugin {
         Mockito.when(requestMock.getAttribute(KEYCLOAK_ACCESS_TOKEN)).thenReturn(accessToken);
         Mockito.when(authenticatorMock.authenticate()).thenReturn(AuthOutcome.AUTHENTICATED);
 
-        Mockito.when(providerMock.provide(any(HttpServletRequest.class), any(HttpServletResponse.class))).thenReturn(
-                authenticatorMock);
+        Mockito.when(providerMock.provide(any(HttpServletRequest.class), any(HttpServletResponse.class)))
+               .thenReturn(authenticatorMock);
         KeycloakDeployment deployment = new KeycloakDeployment();
         deployment.setResourceName("test");
         Mockito.when(providerMock.getResolvedDeployment()).thenReturn(deployment);
