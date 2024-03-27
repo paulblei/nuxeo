@@ -78,7 +78,8 @@ public class KeycloakAuthenticatorProvider {
         Request request = deploymentResult.getRequest();
         String redirecResource = getRedirectResource(request);
 
-        return resolvedDeployment.getLogoutUrl().build().toString() + "?redirect_uri=" + redirecResource;
+        return resolvedDeployment.getLogoutUrl().build().toString() + "?client_id="
+                + resolvedDeployment.getResourceName() + "&post_logout_redirect_uri=" + redirecResource;
     }
 
     public KeycloakDeployment getResolvedDeployment() {

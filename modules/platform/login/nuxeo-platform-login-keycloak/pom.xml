@@ -65,6 +65,19 @@
       <groupId>org.keycloak</groupId>
       <artifactId>keycloak-tomcat-adapter</artifactId>
     </dependency>
+    <dependency>
+      <groupId>org.keycloak</groupId>
+      <artifactId>keycloak-policy-enforcer</artifactId>
+    </dependency>
+    <!-- use bouncycastle jdk15on instead of jdk18on -->
+    <dependency>
+      <groupId>org.bouncycastle</groupId>
+      <artifactId>bcpkix-jdk15on</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.bouncycastle</groupId>
+      <artifactId>bcprov-jdk15on</artifactId>
+    </dependency>
 
     <dependency>
       <groupId>org.nuxeo.runtime</groupId>

@@ -30,6 +30,7 @@ import org.apache.commons.lang3.reflect.FieldUtils;
 import org.keycloak.adapters.AdapterDeploymentContext;
 import org.keycloak.adapters.KeycloakDeployment;
 import org.keycloak.adapters.tomcat.CatalinaHttpFacade;
+import org.keycloak.adapters.tomcat.OIDCCatalinaHttpFacade;
 
 /**
  *
@@ -71,7 +72,7 @@ public class DeploymentResult {
 
         // In Tomcat, a HttpServletRequest and a HttpServletResponse are wrapped in a Facades or ApplicationHttpRequest
         request = unwrapRequest(httpServletRequest);
-        facade = new CatalinaHttpFacade(httpServletResponse, request);
+        facade = new OIDCCatalinaHttpFacade(request, httpServletResponse);
 
         if (keycloakDeployment == null) {
             keycloakDeployment = deploymentContext.resolveDeployment(facade);

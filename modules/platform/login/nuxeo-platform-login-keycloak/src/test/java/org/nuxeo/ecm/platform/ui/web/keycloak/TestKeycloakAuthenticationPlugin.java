@@ -20,7 +20,6 @@ package org.nuxeo.ecm.platform.ui.web.keycloak;
 
 import static junit.framework.TestCase.assertNull;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.mockito.Matchers.any;
 import static org.nuxeo.ecm.platform.ui.web.keycloak.KeycloakRequestAuthenticator.KEYCLOAK_ACCESS_TOKEN;
@@ -44,6 +43,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.keycloak.adapters.KeycloakDeployment;
 import org.keycloak.adapters.spi.AuthOutcome;
+import org.keycloak.common.crypto.CryptoIntegration;
 import org.keycloak.representations.AccessToken;
 import org.mockito.Matchers;
 import org.mockito.Mockito;
@@ -181,7 +181,7 @@ public class TestKeycloakAuthenticationPlugin {
         assertNotNull(result);
         assertEquals(true, result);
 
-        String location = "https://example.com/auth/realms/demo/protocol/openid-connect/logout?redirect_uri=https://example.com/foo/home.html";
+        String location = "https://example.com/auth/realms/demo/protocol/openid-connect/logout?client_id=customer-portal&post_logout_redirect_uri=https://example.com/foo/home.html";
         Mockito.verify(responseMock).sendRedirect(location);
     }
 
@@ -190,6 +190,7 @@ public class TestKeycloakAuthenticationPlugin {
         // Add more configuration parameters in a future version
         parameters.put(KeycloakAuthenticationPlugin.KEYCLOAK_CONFIG_FILE_KEY, "keycloak.json");
         parameters.put(KeycloakAuthenticationPlugin.KEYCLOAK_MAPPING_NAME_KEY, "keycloakTest");
+        CryptoIntegration.init(this.getClass().getClassLoader());
         keycloakAuthenticationPlugin.initPlugin(parameters);
         return keycloakAuthenticationPlugin;
     }
