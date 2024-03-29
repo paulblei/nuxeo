@@ -21,6 +21,7 @@ package org.nuxeo.ecm.platform.ui.web.keycloak;
 import static junit.framework.TestCase.assertNull;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.Matchers.any;
 import static org.nuxeo.ecm.platform.ui.web.keycloak.KeycloakRequestAuthenticator.KEYCLOAK_ACCESS_TOKEN;
 
@@ -136,7 +137,7 @@ public class TestKeycloakAuthenticationPlugin {
 
         UserIdentificationInfo identity = keycloakAuthenticationPlugin.handleRetrieveIdentity(requestFacade,
                 responseFacade);
-        keycloakAuthenticationPlugin.handleLoginPrompt(requestFacade, responseFacade, null);
+        assertTrue(keycloakAuthenticationPlugin.handleLoginPrompt(requestFacade, responseFacade, null));
 
         assertNull(identity);
 
@@ -157,7 +158,7 @@ public class TestKeycloakAuthenticationPlugin {
 
         assertNull(identity);
 
-        keycloakAuthenticationPlugin.handleLoginPrompt(requestFacade, responseFacade, null);
+        assertTrue(keycloakAuthenticationPlugin.handleLoginPrompt(requestFacade, responseFacade, null));
 
         Mockito.verify(responseMock).setStatus(302);
         Mockito.verify(responseMock)

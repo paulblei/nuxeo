@@ -118,7 +118,7 @@ public class KeycloakAuthenticationPlugin
                     challenge.challenge(authenticator.getFacade());
                 }
             }
-            return Boolean.FALSE;
+            return Boolean.TRUE;
         } finally {
             localKeycloakAuthenticator.remove();
         }
