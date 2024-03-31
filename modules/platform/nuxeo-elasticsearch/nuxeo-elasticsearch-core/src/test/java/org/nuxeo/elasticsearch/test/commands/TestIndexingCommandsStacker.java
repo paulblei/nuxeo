@@ -27,22 +27,39 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import javax.inject.Inject;
+
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.nuxeo.ecm.core.api.CoreInstance;
+import org.nuxeo.ecm.core.api.CoreSession;
 import org.nuxeo.ecm.core.api.DocumentModel;
 import org.nuxeo.ecm.core.api.event.DocumentEventTypes;
 import org.nuxeo.ecm.core.api.impl.DocumentModelImpl;
+import org.nuxeo.ecm.core.api.security.ACE;
+import org.nuxeo.ecm.core.api.security.ACL;
+import org.nuxeo.ecm.core.api.security.ACP;
+import org.nuxeo.ecm.core.api.security.SecurityConstants;
+import org.nuxeo.ecm.core.test.CoreFeature;
 import org.nuxeo.elasticsearch.commands.IndexingCommand;
 import org.nuxeo.elasticsearch.commands.IndexingCommand.Type;
 import org.nuxeo.elasticsearch.commands.IndexingCommands;
 import org.nuxeo.elasticsearch.commands.IndexingCommandsStacker;
+import org.nuxeo.runtime.test.runner.Features;
+import org.nuxeo.runtime.test.runner.FeaturesRunner;
 
 /**
  * Test that the logic for transforming CoreEvents in ElasticSearch commands
  *
  * @author <a href="mailto:tdelprat@nuxeo.com">Tiry</a>
  */
+@RunWith(FeaturesRunner.class)
+@Features(CoreFeature.class)
 public class TestIndexingCommandsStacker extends IndexingCommandsStacker {
+
+    @Inject
+    protected CoreSession session;
 
     protected Map<String, IndexingCommands> commands = new HashMap<>();
 
@@ -246,5 +263,26 @@ public class TestIndexingCommandsStacker extends IndexingCommandsStacker {
             return folder;
         }
 
+    }
+
+    @Test
+    public void testStackingProxyDocument() {
+        var root = session.getRootDocument();
+        var testDoc = session.createDocumentModel(root.getPathAsString(), "testFile", "File");
+        testDoc = session.createDocument(testDoc);
+        var proxy = session.createProxy(testDoc.getRef(), root.getRef());
+
+        ACP acp = proxy.getACP();
+        ACL acl = acp.getOrCreateACL();
+        acl.add(new ACE("jack", SecurityConstants.READ));
+        acp.addACL(acl);
+        session.setACP(proxy.getRef(), acp, true);
+
+        var jackSession = CoreInstance.getCoreSession(session.getRepositoryName(), "jack");
+        proxy = jackSession.getDocument(proxy.getRef());
+
+        stackCommand(proxy, DocumentEventTypes.BEFORE_DOC_UPDATE, false);
+
+        assertEquals(1, getCommands(proxy).getCommands().size());
     }
 }

@@ -48,6 +48,8 @@ import java.util.Map;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.nuxeo.ecm.core.api.AbstractSession;
+import org.nuxeo.ecm.core.api.CoreInstance;
+import org.nuxeo.ecm.core.api.CoreSession;
 import org.nuxeo.ecm.core.api.DocumentModel;
 import org.nuxeo.ecm.core.api.DocumentModelList;
 import org.nuxeo.ecm.core.api.IdRef;
@@ -146,8 +148,9 @@ public abstract class IndexingCommandsStacker {
             case AFTER_SET_LEGAL_HOLD:
             case AFTER_REMOVE_LEGAL_HOLD:
                 if (doc.isProxy() && !doc.isImmutable()) {
-                    stackCommand(doc.getCoreSession().getDocument(new IdRef(doc.getSourceId())), BEFORE_DOC_UPDATE,
-                            false);
+                    CoreInstance.doPrivileged(doc.getCoreSession(),
+                            (CoreSession s) -> stackCommand(s.getDocument(new IdRef(doc.getSourceId())),
+                                    BEFORE_DOC_UPDATE, false));
                 }
                 type = Type.UPDATE;
                 break;
