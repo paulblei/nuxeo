@@ -18,12 +18,15 @@
  */
 package org.nuxeo.elasticsearch.test.commands;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.nuxeo.ecm.core.api.DocumentModel;
@@ -114,24 +117,24 @@ public class TestIndexingCommandsStacker extends IndexingCommandsStacker {
         stackCommand(doc3, DocumentEventTypes.BEFORE_DOC_UPDATE, false);
         stackCommand(doc3, DocumentEventTypes.DOCUMENT_REMOVED, false);
 
-        Assert.assertEquals(3, commands.size());
+        assertEquals(3, commands.size());
 
         IndexingCommands ic1 = getCommands(doc1);
-        Assert.assertEquals(1, ic1.getCommands().size());
-        Assert.assertTrue(ic1.contains(Type.INSERT));
-        Assert.assertEquals(Type.INSERT, ic1.getCommands().get(0).getType());
+        assertEquals(1, ic1.getCommands().size());
+        assertTrue(ic1.contains(Type.INSERT));
+        assertEquals(Type.INSERT, ic1.getCommands().get(0).getType());
 
         IndexingCommands ic2 = getCommands(doc2);
-        Assert.assertEquals(1, ic2.getCommands().size());
-        Assert.assertTrue(ic2.contains(Type.UPDATE));
-        Assert.assertEquals(Type.UPDATE, ic2.getCommands().get(0).getType());
+        assertEquals(1, ic2.getCommands().size());
+        assertTrue(ic2.contains(Type.UPDATE));
+        assertEquals(Type.UPDATE, ic2.getCommands().get(0).getType());
 
         IndexingCommands ic3 = getCommands(doc3);
-        Assert.assertEquals(0, ic3.getCommands().size());
+        assertEquals(0, ic3.getCommands().size());
 
         flushCommands();
-        Assert.assertEquals(0, flushedSyncCommands.size());
-        Assert.assertEquals(2, flushedAsyncCommands.size());
+        assertEquals(0, flushedSyncCommands.size());
+        assertEquals(2, flushedAsyncCommands.size());
 
     }
 
@@ -148,23 +151,23 @@ public class TestIndexingCommandsStacker extends IndexingCommandsStacker {
         stackCommand(doc2, DocumentEventTypes.BEFORE_DOC_UPDATE, false);
         stackCommand(doc2, DocumentEventTypes.BEFORE_DOC_UPDATE, true);
 
-        Assert.assertEquals(2, commands.size());
+        assertEquals(2, commands.size());
 
         IndexingCommands ic1 = getCommands(doc1);
-        Assert.assertEquals(1, ic1.getCommands().size());
-        Assert.assertTrue(ic1.contains(Type.UPDATE));
-        Assert.assertEquals(Type.UPDATE, ic1.getCommands().get(0).getType());
-        Assert.assertTrue(ic1.getCommands().get(0).isSync());
+        assertEquals(1, ic1.getCommands().size());
+        assertTrue(ic1.contains(Type.UPDATE));
+        assertEquals(Type.UPDATE, ic1.getCommands().get(0).getType());
+        assertTrue(ic1.getCommands().get(0).isSync());
 
         IndexingCommands ic2 = getCommands(doc2);
-        Assert.assertEquals(1, ic2.getCommands().size());
-        Assert.assertTrue(ic2.contains(Type.INSERT));
-        Assert.assertEquals(Type.INSERT, ic2.getCommands().get(0).getType());
-        Assert.assertTrue(ic2.getCommands().get(0).isSync());
+        assertEquals(1, ic2.getCommands().size());
+        assertTrue(ic2.contains(Type.INSERT));
+        assertEquals(Type.INSERT, ic2.getCommands().get(0).getType());
+        assertTrue(ic2.getCommands().get(0).isSync());
 
         flushCommands();
-        Assert.assertEquals(2, flushedSyncCommands.size());
-        Assert.assertEquals(0, flushedAsyncCommands.size());
+        assertEquals(2, flushedSyncCommands.size());
+        assertEquals(0, flushedAsyncCommands.size());
 
     }
 
@@ -179,20 +182,20 @@ public class TestIndexingCommandsStacker extends IndexingCommandsStacker {
         stackCommand(doc2, DocumentEventTypes.DOCUMENT_SECURITY_UPDATED, false);
 
         IndexingCommands ic1 = getCommands(doc1);
-        Assert.assertEquals(1, ic1.getCommands().size());
-        Assert.assertTrue(ic1.contains(Type.UPDATE));
-        Assert.assertEquals(Type.UPDATE, ic1.getCommands().get(0).getType());
-        Assert.assertTrue(ic1.getCommands().get(0).isRecurse());
+        assertEquals(1, ic1.getCommands().size());
+        assertTrue(ic1.contains(Type.UPDATE));
+        assertEquals(Type.UPDATE, ic1.getCommands().get(0).getType());
+        assertTrue(ic1.getCommands().get(0).isRecurse());
 
         IndexingCommands ic2 = getCommands(doc2);
-        Assert.assertEquals(1, ic2.getCommands().size());
-        Assert.assertTrue(ic2.contains(Type.UPDATE_SECURITY));
-        Assert.assertEquals(Type.UPDATE_SECURITY, ic2.getCommands().get(0).getType());
-        Assert.assertTrue(ic2.getCommands().get(0).isRecurse());
+        assertEquals(1, ic2.getCommands().size());
+        assertTrue(ic2.contains(Type.UPDATE_SECURITY));
+        assertEquals(Type.UPDATE_SECURITY, ic2.getCommands().get(0).getType());
+        assertTrue(ic2.getCommands().get(0).isRecurse());
 
         flushCommands();
-        Assert.assertEquals(0, flushedSyncCommands.size());
-        Assert.assertEquals(2, flushedAsyncCommands.size());
+        assertEquals(0, flushedSyncCommands.size());
+        assertEquals(2, flushedAsyncCommands.size());
 
     }
 
@@ -204,15 +207,15 @@ public class TestIndexingCommandsStacker extends IndexingCommandsStacker {
 
         IndexingCommands ic1 = getCommands(doc1);
         // We should have 2 commands 1 sync + 1 async and recursive
-        Assert.assertEquals(2, ic1.getCommands().size());
-        Assert.assertTrue(ic1.contains(Type.UPDATE));
-        Assert.assertEquals(Type.UPDATE, ic1.getCommands().get(0).getType());
-        Assert.assertFalse(ic1.getCommands().get(0).isRecurse());
-        Assert.assertTrue(ic1.getCommands().get(1).isRecurse());
+        assertEquals(2, ic1.getCommands().size());
+        assertTrue(ic1.contains(Type.UPDATE));
+        assertEquals(Type.UPDATE, ic1.getCommands().get(0).getType());
+        assertFalse(ic1.getCommands().get(0).isRecurse());
+        assertTrue(ic1.getCommands().get(1).isRecurse());
 
         flushCommands();
-        Assert.assertEquals(1, flushedSyncCommands.size());
-        Assert.assertEquals(1, flushedAsyncCommands.size());
+        assertEquals(1, flushedSyncCommands.size());
+        assertEquals(1, flushedAsyncCommands.size());
     }
 
     public final class MockDocumentModel extends DocumentModelImpl {

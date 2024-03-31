@@ -121,65 +121,66 @@ public abstract class IndexingCommandsStacker {
         Type type;
         boolean recurse = false;
         switch (eventId) {
-        case DOCUMENT_CREATED:
-        case DOCUMENT_IMPORTED:
-            type = Type.INSERT;
-            break;
-        case DOCUMENT_CREATED_BY_COPY:
-            type = Type.INSERT;
-            recurse = isFolderish(doc);
-            break;
-        case BEFORE_DOC_UPDATE:
-        case DOCUMENT_CHECKEDIN:
-        case DOCUMENT_CHECKEDOUT:
-        case BINARYTEXT_UPDATED:
-        case DOCUMENT_TAG_UPDATED:
-        case DOCUMENT_PROXY_UPDATED:
-        case LifeCycleConstants.TRANSITION_EVENT:
-        case DOCUMENT_TRASHED:
-        case DOCUMENT_UNTRASHED:
-        case DOCUMENT_RESTORED:
-        case AFTER_MAKE_RECORD:
-        case AFTER_SET_RETENTION:
-        case AFTER_UNSET_RETENTION:
-        case AFTER_EXTEND_RETENTION:
-        case AFTER_SET_LEGAL_HOLD:
-        case AFTER_REMOVE_LEGAL_HOLD:
-            if (doc.isProxy() && !doc.isImmutable()) {
-                stackCommand(doc.getCoreSession().getDocument(new IdRef(doc.getSourceId())), BEFORE_DOC_UPDATE, false);
-            }
-            type = Type.UPDATE;
-            break;
-        case ABOUT_TO_CHECKIN:
-            if (indexIsLatestVersion()) {
-                String query = String.format(
-                        "SELECT * FROM %s WHERE (ecm:isLatestMajorVersion = 1 OR ecm:isLatestVersion = 1) AND ecm:versionVersionableId= '%s'",
-                        doc.getType(), doc.getId());
-                DocumentModelList versions = doc.getCoreSession().query(query);
-                for (DocumentModel version : versions) {
-                    stackCommand(version, BEFORE_DOC_UPDATE, false);
+            case DOCUMENT_CREATED:
+            case DOCUMENT_IMPORTED:
+                type = Type.INSERT;
+                break;
+            case DOCUMENT_CREATED_BY_COPY:
+                type = Type.INSERT;
+                recurse = isFolderish(doc);
+                break;
+            case BEFORE_DOC_UPDATE:
+            case DOCUMENT_CHECKEDIN:
+            case DOCUMENT_CHECKEDOUT:
+            case BINARYTEXT_UPDATED:
+            case DOCUMENT_TAG_UPDATED:
+            case DOCUMENT_PROXY_UPDATED:
+            case LifeCycleConstants.TRANSITION_EVENT:
+            case DOCUMENT_TRASHED:
+            case DOCUMENT_UNTRASHED:
+            case DOCUMENT_RESTORED:
+            case AFTER_MAKE_RECORD:
+            case AFTER_SET_RETENTION:
+            case AFTER_UNSET_RETENTION:
+            case AFTER_EXTEND_RETENTION:
+            case AFTER_SET_LEGAL_HOLD:
+            case AFTER_REMOVE_LEGAL_HOLD:
+                if (doc.isProxy() && !doc.isImmutable()) {
+                    stackCommand(doc.getCoreSession().getDocument(new IdRef(doc.getSourceId())), BEFORE_DOC_UPDATE,
+                            false);
                 }
-            }
-            type = Type.UPDATE;
-            break;
-        case DOCUMENT_MOVED:
-            type = Type.UPDATE;
-            recurse = isFolderish(doc);
-            break;
-        case DOCUMENT_REMOVED:
-            type = Type.DELETE;
-            recurse = isFolderish(doc);
-            break;
-        case DOCUMENT_SECURITY_UPDATED:
-            type = Type.UPDATE_SECURITY;
-            recurse = isFolderish(doc);
-            break;
-        case DOCUMENT_CHILDREN_ORDER_CHANGED:
-            type = Type.UPDATE_DIRECT_CHILDREN;
-            recurse = true;
-            break;
-        default:
-            return;
+                type = Type.UPDATE;
+                break;
+            case ABOUT_TO_CHECKIN:
+                if (indexIsLatestVersion()) {
+                    String query = String.format(
+                            "SELECT * FROM %s WHERE (ecm:isLatestMajorVersion = 1 OR ecm:isLatestVersion = 1) AND ecm:versionVersionableId= '%s'",
+                            doc.getType(), doc.getId());
+                    DocumentModelList versions = doc.getCoreSession().query(query);
+                    for (DocumentModel version : versions) {
+                        stackCommand(version, BEFORE_DOC_UPDATE, false);
+                    }
+                }
+                type = Type.UPDATE;
+                break;
+            case DOCUMENT_MOVED:
+                type = Type.UPDATE;
+                recurse = isFolderish(doc);
+                break;
+            case DOCUMENT_REMOVED:
+                type = Type.DELETE;
+                recurse = isFolderish(doc);
+                break;
+            case DOCUMENT_SECURITY_UPDATED:
+                type = Type.UPDATE_SECURITY;
+                recurse = isFolderish(doc);
+                break;
+            case DOCUMENT_CHILDREN_ORDER_CHANGED:
+                type = Type.UPDATE_DIRECT_CHILDREN;
+                recurse = true;
+                break;
+            default:
+                return;
         }
         if (sync && recurse) {
             // split into 2 commands one sync and an async recurse
