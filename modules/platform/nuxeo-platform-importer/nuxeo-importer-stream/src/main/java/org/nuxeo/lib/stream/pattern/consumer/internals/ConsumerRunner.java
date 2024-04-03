@@ -190,9 +190,9 @@ public class ConsumerRunner<M extends Message> implements Callable<ConsumerStatu
                     "Tailer startOffset to " + seekPosition + " is not supported in subscribe mode");
         }
         return switch (policy.getStartOffset()) {
-        case BEGIN -> LogTailer::toStart;
-        case END -> LogTailer::toEnd;
-        default -> LogTailer::toLastCommitted;
+            case BEGIN -> LogTailer::toStart;
+            case END -> LogTailer::toEnd;
+            default -> LogTailer::toLastCommitted;
         };
     }
 

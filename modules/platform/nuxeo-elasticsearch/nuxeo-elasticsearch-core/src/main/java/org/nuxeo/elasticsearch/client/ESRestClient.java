@@ -90,9 +90,11 @@ public class ESRestClient implements ESClient {
     protected RestHighLevelClient client;
 
     protected RequestOptions COMPAT_ES_OPTIONS = RequestOptions.DEFAULT.toBuilder()
-            .addHeader("Accept", "application/json; compatible-with=7; charset=UTF-8")
-            .addHeader("Content-Type", "application/json; compatible-with=7; charset=UTF-8")
-            .build();
+                                                                       .addHeader("Accept",
+                                                                               "application/json; compatible-with=7; charset=UTF-8")
+                                                                       .addHeader("Content-Type",
+                                                                               "application/json; compatible-with=7; charset=UTF-8")
+                                                                       .build();
 
     public ESRestClient(RestClient lowLevelRestClient, RestHighLevelClient client) {
         this.lowLevelClient = lowLevelRestClient;
@@ -115,16 +117,16 @@ public class ESRestClient implements ESClient {
             throw new NuxeoException(e);
         }
         switch (healthStatus) {
-        case GREEN:
-            log.info("Elasticsearch Cluster ready: {}", response);
-            return true;
-        case YELLOW:
-            log.warn("Elasticsearch Cluster ready but not GREEN: {}", response);
-            return false;
-        default:
-            String error = "Elasticsearch Cluster health status: " + healthStatus + ", not Yellow after "
-                    + timeoutSecond + " give up: " + response;
-            throw new IllegalStateException(error);
+            case GREEN:
+                log.info("Elasticsearch Cluster ready: {}", response);
+                return true;
+            case YELLOW:
+                log.warn("Elasticsearch Cluster ready but not GREEN: {}", response);
+                return false;
+            default:
+                String error = "Elasticsearch Cluster health status: " + healthStatus + ", not Yellow after "
+                        + timeoutSecond + " give up: " + response;
+                throw new IllegalStateException(error);
         }
     }
 
@@ -173,12 +175,12 @@ public class ESRestClient implements ESClient {
     public boolean indexExists(String indexName) {
         Response response = performRequestWithTracing(new Request("HEAD", "/" + indexName));
         switch (response.getStatusLine().getStatusCode()) {
-        case HttpStatus.SC_OK:
-            return true;
-        case HttpStatus.SC_NOT_FOUND:
-            return false;
-        default:
-            throw new IllegalStateException(String.format("Checking index %s returns: %s", indexName, response));
+            case HttpStatus.SC_OK:
+                return true;
+            case HttpStatus.SC_NOT_FOUND:
+                return false;
+            default:
+                throw new IllegalStateException(String.format("Checking index %s returns: %s", indexName, response));
         }
     }
 
@@ -187,12 +189,12 @@ public class ESRestClient implements ESClient {
         // HEAD is not supported anymore since elastic 7.x
         Response response = performRequestWithTracing(new Request("GET", String.format("/%s/_mapping", indexName)));
         switch (response.getStatusLine().getStatusCode()) {
-        case HttpStatus.SC_OK:
-            return true;
-        case HttpStatus.SC_NOT_FOUND:
-            return false;
-        default:
-            throw new IllegalStateException(String.format("Checking mapping %s returns: %s", indexName, response));
+            case HttpStatus.SC_OK:
+                return true;
+            case HttpStatus.SC_NOT_FOUND:
+                return false;
+            default:
+                throw new IllegalStateException(String.format("Checking mapping %s returns: %s", indexName, response));
         }
     }
 
@@ -293,12 +295,12 @@ public class ESRestClient implements ESClient {
     public boolean aliasExists(String aliasName) {
         Response response = performRequestWithTracing(new Request("HEAD", String.format("/_alias/%s", aliasName)));
         switch (response.getStatusLine().getStatusCode()) {
-        case HttpStatus.SC_OK:
-            return true;
-        case HttpStatus.SC_NOT_FOUND:
-            return false;
-        default:
-            throw new IllegalStateException(String.format("Checking alias %s returns: %s", aliasName, response));
+            case HttpStatus.SC_OK:
+                return true;
+            case HttpStatus.SC_NOT_FOUND:
+                return false;
+            default:
+                throw new IllegalStateException(String.format("Checking alias %s returns: %s", aliasName, response));
         }
     }
 
