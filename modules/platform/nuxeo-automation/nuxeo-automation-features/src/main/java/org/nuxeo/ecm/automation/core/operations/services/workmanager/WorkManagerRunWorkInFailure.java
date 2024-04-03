@@ -53,8 +53,6 @@ import org.nuxeo.lib.stream.computation.Topology;
 import org.nuxeo.runtime.api.Framework;
 import org.nuxeo.runtime.stream.StreamService;
 
-import net.jodah.failsafe.RetryPolicy;
-
 /**
  * Executes Works stored in the dead letter queue after failure.
  *
@@ -89,7 +87,8 @@ public class WorkManagerRunWorkInFailure {
 
     @OperationMethod
     public Blob run() throws IOException, InterruptedException, TimeoutException {
-        log.warn("Reprocessing Works in DLQ: dryRun: {}, categoryFilter: {}, timeout after: {}s", dryRun, categoryFilter, timeout);
+        log.warn("Reprocessing Works in DLQ: dryRun: {}, categoryFilter: {}, timeout after: {}s", dryRun,
+                categoryFilter, timeout);
         StreamManager streamManager = Framework.getService(StreamService.class).getStreamManager();
         Settings settings = new Settings(1, 1, WorkManagerImpl.DEAD_LETTER_QUEUE_CODEC, getComputationPolicy());
         StreamProcessor processor = streamManager.registerAndCreateProcessor("RunWorkInFailure", getTopology(),
@@ -126,7 +125,7 @@ public class WorkManagerRunWorkInFailure {
     }
 
     protected ComputationPolicy getComputationPolicy() {
-        return new ComputationPolicyBuilder().retryPolicy(new RetryPolicy(ComputationPolicy.NO_RETRY))
+        return new ComputationPolicyBuilder().retryPolicy(ComputationPolicy.NO_RETRY.copy())
                                              .continueOnFailure(true)
                                              .build();
     }

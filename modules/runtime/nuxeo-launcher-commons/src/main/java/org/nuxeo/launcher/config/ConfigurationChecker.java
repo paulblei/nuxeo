@@ -40,12 +40,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.PathMatcher;
 import java.text.ParseException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Properties;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 import org.apache.commons.io.FileUtils;
@@ -316,17 +316,17 @@ public class ConfigurationChecker {
      * Calls all {@link BackingChecker} if they accept the current configuration.
      */
     public void checkBackingServices(ConfigurationHolder configHolder) throws ConfigurationException {
-        RetryPolicy retryPolicy = buildRetryPolicy(configHolder);
+        RetryPolicy<Object> retryPolicy = buildRetryPolicy(configHolder);
         for (BackingChecker checker : instantiateBackingCheckers(configHolder)) {
             if (checker.accepts(configHolder)) {
                 ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
                 try {
                     // Propagate the checker's class loader for jaas
                     Thread.currentThread().setContextClassLoader(checker.getClass().getClassLoader());
-                    Failsafe.with(retryPolicy)
-                            .onFailedAttempt(failure -> log.error(failure.getMessage(), failure))
-                            .onRetry((c, f, ctx) -> log.warn("Failure {}. Retrying....", ctx.getExecutions()))
-                            .run(() -> checker.check(configHolder));
+                    RetryPolicy<Object> p = retryPolicy.copy();
+                    p.onRetry(evt -> log.warn("Failure {}. Retrying....", evt.getLastFailure()));
+                    p.onFailure(evt -> log.error(evt.getFailure().getMessage(), evt.getFailure()));
+                    Failsafe.with(p).run(() -> checker.check(configHolder));
                 } catch (FailsafeException e) {
                     if (e.getCause() instanceof ConfigurationException) {
                         throw ((ConfigurationException) e.getCause());
@@ -340,17 +340,18 @@ public class ConfigurationChecker {
         }
     }
 
-    protected RetryPolicy buildRetryPolicy(ConfigurationHolder configHolder) {
-        RetryPolicy retryPolicy = new RetryPolicy().withMaxRetries(0);
+    protected RetryPolicy<Object> buildRetryPolicy(ConfigurationHolder configHolder) {
+        RetryPolicy<Object> retryPolicy = new RetryPolicy<>().withMaxRetries(0);
         if (configHolder.getPropertyAsBoolean(PARAM_RETRY_POLICY_ENABLED)) {
             int maxRetries = configHolder.getPropertyAsInteger(PARAM_RETRY_POLICY_MAX_RETRIES,
                     PARAM_RETRY_POLICY_DEFAULT_RETRIES);
             int delay = configHolder.getPropertyAsInteger(PARAM_RETRY_POLICY_DELAY_IN_MS,
                     PARAM_POLICY_DEFAULT_DELAY_IN_MS);
 
-            retryPolicy = retryPolicy.retryOn(ConfigurationException.class)
-                                     .withMaxRetries(maxRetries)
-                                     .withDelay(delay, TimeUnit.MILLISECONDS);
+            retryPolicy = retryPolicy.withMaxRetries(maxRetries)
+                                     .withDelay(Duration.ofMillis(delay))
+                                     .handle(ConfigurationException.class);
+
         }
         return retryPolicy;
     }

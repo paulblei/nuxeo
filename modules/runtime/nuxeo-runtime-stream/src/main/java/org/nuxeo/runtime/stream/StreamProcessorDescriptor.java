@@ -20,11 +20,11 @@
 package org.nuxeo.runtime.stream;
 
 import java.time.Duration;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 import org.nuxeo.common.xmap.annotation.XNode;
 import org.nuxeo.common.xmap.annotation.XNodeList;
@@ -180,9 +180,9 @@ public class StreamProcessorDescriptor implements Descriptor {
         }
 
         public ComputationPolicyBuilder createPolicyBuilder() {
-            RetryPolicy retryPolicy = new RetryPolicy().withMaxRetries(maxRetries)
+            RetryPolicy<Object> retryPolicy = new RetryPolicy<>().withMaxRetries(maxRetries)
                                                        .withBackoff(delay.toMillis(), maxDelay.toMillis(),
-                                                               TimeUnit.MILLISECONDS);
+                                                               ChronoUnit.MILLIS);
             return new ComputationPolicyBuilder().retryPolicy(retryPolicy)
                                                  .batchPolicy(batchCapacity, batchThreshold)
                                                  .continueOnFailure(continueOnFailure)

@@ -199,9 +199,10 @@ public class ConsumerRunner<M extends Message> implements Callable<ConsumerStatu
     protected void consumerLoop() throws InterruptedException {
         boolean end = false;
         while (!end) {
-            Execution execution = new Execution(policy.getRetryPolicy());
+            Execution<Object> execution = new Execution<>(policy.getRetryPolicy());
             end = processBatchWithRetry(execution);
-            if (execution.getLastFailure() != null) {
+            if (!execution.isComplete()) {
+                // Dead code, need to fix continueOnFailure see NXP-32459
                 if (policy.continueOnFailure()) {
                     log.error("Skip message on failure after applying the retry policy: ", execution.getLastFailure());
                 } else {
@@ -212,7 +213,7 @@ public class ConsumerRunner<M extends Message> implements Callable<ConsumerStatu
         }
     }
 
-    protected boolean processBatchWithRetry(Execution execution) throws InterruptedException {
+    protected boolean processBatchWithRetry(Execution<Object> execution) throws InterruptedException {
         boolean end = false;
         while (!execution.isComplete()) {
             try {

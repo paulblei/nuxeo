@@ -34,7 +34,7 @@ public class ConsumerPolicy {
         BEGIN, END, LAST_COMMITTED
     }
 
-    public static final RetryPolicy NO_RETRY = new RetryPolicy().withMaxRetries(0);
+    public static final RetryPolicy<Object> NO_RETRY = new RetryPolicy<>().withMaxRetries(0);
 
     /**
      * Consumer policy that stop on starvation and failure.
@@ -44,7 +44,7 @@ public class ConsumerPolicy {
                                                           .build();
 
     public static final ConsumerPolicy BOUNDED_RETRY = builder().waitMessageTimeout(Duration.ofSeconds(5))
-                                                                .retryPolicy(new RetryPolicy().withMaxRetries(3))
+                                                                .retryPolicy(new RetryPolicy<>().withMaxRetries(3))
                                                                 .continueOnFailure(false)
                                                                 .build();
 
@@ -54,13 +54,13 @@ public class ConsumerPolicy {
     public static final ConsumerPolicy UNBOUNDED = builder().continueOnFailure(true).waitMessageForEver().build();
 
     public static final ConsumerPolicy UNBOUNDED_RETRY = builder().continueOnFailure(true)
-                                                                  .retryPolicy(new RetryPolicy().withMaxRetries(3))
+                                                                  .retryPolicy(new RetryPolicy<>().withMaxRetries(3))
                                                                   .waitMessageForEver()
                                                                   .build();
 
     protected final BatchPolicy batchPolicy;
 
-    protected final RetryPolicy retryPolicy;
+    protected final RetryPolicy<Object> retryPolicy;
 
     protected final boolean skipFailure;
 
@@ -93,7 +93,7 @@ public class ConsumerPolicy {
         return batchPolicy;
     }
 
-    public RetryPolicy getRetryPolicy() {
+    public RetryPolicy<Object> getRetryPolicy() {
         return retryPolicy;
     }
 

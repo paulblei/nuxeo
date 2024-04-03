@@ -18,7 +18,7 @@
  */
 package org.nuxeo.runtime.stream.tests;
 
-import java.util.concurrent.TimeUnit;
+import java.time.temporal.ChronoUnit;
 
 import org.nuxeo.lib.stream.computation.ComputationPolicy;
 import org.nuxeo.lib.stream.computation.ComputationPolicyBuilder;
@@ -37,10 +37,10 @@ public class MyPolicy implements StreamComputationPolicy {
     @Override
     public ComputationPolicy getPolicy(StreamProcessorDescriptor.PolicyDescriptor descriptor) {
         // Here we can use the full RetryPolicy API
-        RetryPolicy retryPolicy = new RetryPolicy().withMaxRetries(descriptor.maxRetries)
+        RetryPolicy<Object> retryPolicy = new RetryPolicy<>().withMaxRetries(descriptor.maxRetries)
                                                    .withBackoff(descriptor.delay.toMillis(),
-                                                           descriptor.maxDelay.toMillis(), TimeUnit.MILLISECONDS);
-        retryPolicy.retryOn(IllegalStateException.class, IllegalArgumentException.class);
+                                                           descriptor.maxDelay.toMillis(), ChronoUnit.MILLIS);
+        retryPolicy.handle(IllegalStateException.class, IllegalArgumentException.class);
         ComputationPolicyBuilder builder = descriptor.createPolicyBuilder();
         return builder.retryPolicy(retryPolicy).build();
     }

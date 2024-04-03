@@ -33,7 +33,7 @@ public class ComputationPolicyBuilder {
 
     protected static final int DEFAULT_BATCH_THRESHOLD_SECOND = 1;
 
-    protected RetryPolicy retryPolicy = ComputationPolicy.NO_RETRY;
+    protected RetryPolicy<Object> retryPolicy = ComputationPolicy.NO_RETRY;
 
     protected boolean skipFailure = false;
 
@@ -64,7 +64,7 @@ public class ComputationPolicyBuilder {
     /**
      * Defines what to do in case of failure during the batch processing.
      */
-    public ComputationPolicyBuilder retryPolicy(RetryPolicy policy) {
+    public ComputationPolicyBuilder retryPolicy(RetryPolicy<Object> policy) {
         retryPolicy = policy;
         return this;
     }

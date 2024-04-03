@@ -566,8 +566,9 @@ public abstract class TestStreamProcessor {
             assertEquals(lag.toString(), 1, lag.lag());
         }
         // Policy no retry and continue on failure
-        ComputationPolicy policy = new ComputationPolicyBuilder().retryPolicy(
-                new RetryPolicy(ComputationPolicy.NO_RETRY)).continueOnFailure(true).build();
+        ComputationPolicy policy = new ComputationPolicyBuilder().retryPolicy(ComputationPolicy.NO_RETRY)
+                                                                 .continueOnFailure(true)
+                                                                 .build();
         try (LogManager manager = getSameLogManager()) {
             StreamManager streamManager = new LogStreamManager(manager);
             Settings settings = new Settings(1, 1, policy);
@@ -582,8 +583,8 @@ public abstract class TestStreamProcessor {
         }
         // Policy with retries, abort on failure
         policy = new ComputationPolicyBuilder().retryPolicy(
-                new RetryPolicy().withMaxRetries(ComputationFailureForward.FAILURE_COUNT)
-                                 .retryOn(IllegalStateException.class)).continueOnFailure(false).build();
+                new RetryPolicy<>().withMaxRetries(ComputationFailureForward.FAILURE_COUNT)
+                                   .handle(IllegalStateException.class)).continueOnFailure(false).build();
         try (LogManager manager = getSameLogManager()) {
             StreamManager streamManager = new LogStreamManager(manager);
             Settings settings = new Settings(1, 1, policy);
@@ -634,9 +635,9 @@ public abstract class TestStreamProcessor {
 
         // Policy with retries, abort on failure
         policy = new ComputationPolicyBuilder().batchPolicy(batchCapacity, batchThreshold)
-                                               .retryPolicy(new RetryPolicy().withMaxRetries(
+                                               .retryPolicy(new RetryPolicy<>().withMaxRetries(
                                                        ComputationBatchFailureForward.FAILURE_COUNT)
-                                                                             .retryOn(IllegalStateException.class))
+                                                                               .handle(IllegalStateException.class))
                                                .continueOnFailure(false)
                                                .build();
         try (LogManager manager = getSameLogManager()) {

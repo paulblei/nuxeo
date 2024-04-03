@@ -20,7 +20,7 @@ package org.nuxeo.runtime.stream;
 
 import java.io.IOException;
 import java.sql.SQLException;
-import java.util.concurrent.TimeUnit;
+import java.time.temporal.ChronoUnit;
 import java.util.concurrent.TimeoutException;
 
 import org.nuxeo.lib.stream.computation.ComputationPolicy;
@@ -37,11 +37,11 @@ public class DefaultNuxeoComputationPolicy implements StreamComputationPolicy {
 
     @Override
     public ComputationPolicy getPolicy(StreamProcessorDescriptor.PolicyDescriptor descriptor) {
-        RetryPolicy retryPolicy = new RetryPolicy().withMaxRetries(descriptor.maxRetries)
+        RetryPolicy<Object> retryPolicy = new RetryPolicy<>().withMaxRetries(descriptor.maxRetries)
                                                    .withBackoff(descriptor.delay.toMillis(),
-                                                           descriptor.maxDelay.toMillis(), TimeUnit.MILLISECONDS);
+                                                           descriptor.maxDelay.toMillis(), ChronoUnit.MILLIS);
         // NuxeoException and ConcurrentUpdateException are assignable from RuntimeException
-        retryPolicy.retryOn(RuntimeException.class, TimeoutException.class, IOException.class, SQLException.class);
+        retryPolicy.handle(RuntimeException.class, TimeoutException.class, IOException.class, SQLException.class);
         retryPolicy.abortOn(StreamNoRetryException.class);
         ComputationPolicyBuilder builder = descriptor.createPolicyBuilder();
         builder.retryPolicy(retryPolicy);

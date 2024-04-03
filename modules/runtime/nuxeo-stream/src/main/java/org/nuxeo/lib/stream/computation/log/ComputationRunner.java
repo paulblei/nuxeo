@@ -65,6 +65,9 @@ import io.opencensus.trace.Tracing;
 import io.opencensus.trace.propagation.BinaryFormat;
 import io.opencensus.trace.propagation.SpanContextParseException;
 import net.jodah.failsafe.Failsafe;
+import net.jodah.failsafe.Fallback;
+import net.jodah.failsafe.RetryPolicy;
+import net.jodah.failsafe.function.CheckedRunnable;
 
 /**
  * Thread driving a Computation
@@ -163,7 +166,6 @@ public class ComputationRunner implements Runnable, RebalanceListener {
         CHECKPOINT_ERROR, INTERRUPTED, TERMINATE
     }
 
-    @SuppressWarnings("unchecked")
     public ComputationRunner(Supplier<Computation> supplier, ComputationMetadataMapping metadata,
             List<LogPartition> defaultAssignment, LogStreamManager streamManager, ComputationPolicy policy) {
         this.supplier = supplier;
@@ -409,12 +411,16 @@ public class ComputationRunner implements Runnable, RebalanceListener {
 
     protected void processTimerWithRetry(String key, Long value) {
         try (Timer.Context ignored = processTimerTimer.time()) {
-            Failsafe.with(policy.getRetryPolicy())
-                    .onRetry(failure -> computation.processRetry(context, failure))
-                    .onFailure(failure -> computation.processFailure(context, failure))
-                    .withFallback(() -> processFallback(context))
-                    .run(() -> computation.processTimer(context, key, value));
+            processWithRetry(() -> computation.processTimer(context, key, value));
         }
+    }
+
+    protected void processWithRetry(CheckedRunnable runnable) {
+        RetryPolicy<Object> retryPolicy = policy.getRetryPolicy().copy();
+        retryPolicy.onRetry(evt -> computation.processRetry(context, evt.getLastFailure()));
+        retryPolicy.onFailure(evt -> computation.processFailure(context, evt.getFailure()));
+        Fallback<Object> fallback = Fallback.of(() -> processFallback(context));
+        Failsafe.with(fallback, retryPolicy).run(runnable);
     }
 
     protected boolean processRecord() throws InterruptedException {
@@ -503,11 +509,7 @@ public class ComputationRunner implements Runnable, RebalanceListener {
     protected void processRecordWithRetry(String from, Record record) {
         runningCount.inc();
         try (Timer.Context ignored = processRecordTimer.time()) {
-            Failsafe.with(policy.getRetryPolicy())
-                    .onRetry(failure -> computation.processRetry(context, failure))
-                    .onFailure(failure -> computation.processFailure(context, failure))
-                    .withFallback(() -> processFallback(context))
-                    .run(() -> computation.processRecord(context, from, record));
+            processWithRetry(() -> computation.processRecord(context, from, record));
             long duration = ignored.stop();
             if (duration > SLOW_COMPUTATION_THRESHOLD_NS && processRecordTimer.getCount() > 100
                     && duration >= processRecordTimer.getSnapshot().getMax()) {
@@ -677,6 +679,9 @@ public class ComputationRunner implements Runnable, RebalanceListener {
     }
 
     protected static class CheckPointException extends RuntimeException {
+
+        private static final long serialVersionUID = 1L;
+
         public CheckPointException(String message, Throwable e) {
             super(message, e);
         }

@@ -21,10 +21,10 @@ package org.nuxeo.elasticsearch.client;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.SocketTimeoutException;
+import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.http.HttpStatus;
@@ -363,16 +363,18 @@ public class ESRestClient implements ESClient {
         // retry 1: 30s +/-15 [t+15, t+45]
         // retry 2: 60s +/-30 [t+45, t+135]
         // retry 3: 120 +/-60 [t+105, t+315]
-        RetryPolicy policy = new RetryPolicy().withMaxRetries(3)
-                                              .withBackoff(30, 200, TimeUnit.SECONDS)
-                                              .withJitter(0.5)
-                                              .retryOn(TooManyRequestsRetryableException.class);
+        var maxRetries = 3;
+        RetryPolicy<Object> policy = new RetryPolicy<>().withMaxRetries(maxRetries)
+                                                        .withBackoff(30, 200, ChronoUnit.SECONDS)
+                                                        .withJitter(0.5)
+                                                        .onRetry(failure -> log.warn("Retrying bulk index ... {}",
+                                                                request::getDescription))
+                                                        .onRetriesExceeded(evt -> log.warn(
+                                                                "Give up bulk index after {} retries: {}",
+                                                                () -> maxRetries, request::getDescription))
+                                                        .handle(TooManyRequestsRetryableException.class);
         AtomicReference<BulkResponse> response = new AtomicReference<>();
-        Failsafe.with(policy)
-                .onRetry(failure -> log.warn("Retrying bulk index ... {}", request.getDescription()))
-                .onRetriesExceeded(failure -> log.warn("Give up bulk index after {} retries: {}", policy::getMaxRetries,
-                        request::getDescription))
-                .run(() -> response.set(doBulk(request)));
+        Failsafe.with(policy).run(() -> response.set(doBulk(request)));
         return response.get();
     }
 
@@ -423,15 +425,20 @@ public class ESRestClient implements ESClient {
         // retry 1: 20s +/-10 [t+10, t+30]
         // retry 2: 40s +/-20 [t+30 t+90]
         // retry 3: 80S +/-40 [t+70, t+210]
-        RetryPolicy policy = new RetryPolicy().withMaxRetries(3)
-                                              .withBackoff(20, 200, TimeUnit.SECONDS)
-                                              .withJitter(0.5)
-                                              .retryOn(TooManyRequestsRetryableException.class);
+        var maxRetries = 3;
+        RetryPolicy<Object> policy = new RetryPolicy<>().withMaxRetries(maxRetries)
+                                                        .withBackoff(20, 200, ChronoUnit.SECONDS)
+                                                        .withJitter(0.5)
+                                                        .onRetry(failure -> log.warn("Retrying delete ... {}",
+                                                                request::getDescription))
+                                                        .onRetriesExceeded(failure -> log.warn(
+                                                                "Give up delete after {} retries: {}", () -> maxRetries,
+                                                                request::getDescription))
+                                                        .handle(TooManyRequestsRetryableException.class);
+
         AtomicReference<DeleteResponse> response = new AtomicReference<>();
         Failsafe.with(policy)
-                .onRetry(failure -> log.warn("Retrying delete ... " + request.getDescription()))
-                .onRetriesExceeded(failure -> log.warn(
-                        "Give up delete after " + policy.getMaxRetries() + " retries: " + request.getDescription()))
+
                 .run(() -> response.set(doDelete(request)));
         return response.get();
     }
@@ -485,16 +492,18 @@ public class ESRestClient implements ESClient {
         // retry 1: 20s +/-10 [t+10, t+30]
         // retry 2: 40s +/-20 [t+30 t+90]
         // retry 3: 80S +/-40 [t+70, t+210]
-        RetryPolicy policy = new RetryPolicy().withMaxRetries(3)
-                                              .withBackoff(20, 200, TimeUnit.SECONDS)
-                                              .withJitter(0.5)
-                                              .retryOn(TooManyRequestsRetryableException.class);
+        var maxRetries = 3;
+        RetryPolicy<Object> policy = new RetryPolicy<>().withMaxRetries(maxRetries)
+                                                        .withBackoff(20, 200, ChronoUnit.SECONDS)
+                                                        .withJitter(0.5)
+                                                        .onRetry(failure -> log.warn("Retrying index ... {}",
+                                                                request::getDescription))
+                                                        .onRetriesExceeded(failure -> log.warn(
+                                                                "Give up index after {} retries: {}", () -> maxRetries,
+                                                                request::getDescription))
+                                                        .handle(TooManyRequestsRetryableException.class);
         AtomicReference<IndexResponse> response = new AtomicReference<>();
-        Failsafe.with(policy)
-                .onRetry(failure -> log.warn("Retrying index ... {}", request::getDescription))
-                .onRetriesExceeded(failure -> log.warn("Give up index after {} retries: {}", policy::getMaxRetries,
-                        request::getDescription))
-                .run(() -> response.set(doIndex(request)));
+        Failsafe.with(policy).run(() -> response.set(doIndex(request)));
         return response.get();
     }
 
@@ -572,6 +581,8 @@ public class ESRestClient implements ESClient {
      * @since 2021.16
      */
     public static class TooManyRequestsRetryableException extends Exception {
+
+        private static final long serialVersionUID = 1L;
 
         public TooManyRequestsRetryableException(String message) {
             super(message);

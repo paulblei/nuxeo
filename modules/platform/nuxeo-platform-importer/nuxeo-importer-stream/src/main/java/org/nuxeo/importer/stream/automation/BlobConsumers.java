@@ -23,7 +23,6 @@ import static org.nuxeo.importer.stream.StreamImporters.DEFAULT_LOG_BLOB_NAME;
 
 import java.time.Duration;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
 
 import org.apache.logging.log4j.Logger;
 import org.nuxeo.ecm.automation.OperationContext;
@@ -109,9 +108,9 @@ public class BlobConsumers {
                                                                          .timeThreshold(
                                                                                  Duration.ofSeconds(batchThresholdS))
                                                                          .build())
-                                                      .retryPolicy(new RetryPolicy().withMaxRetries(retryMax)
-                                                                                    .withDelay(retryDelayS,
-                                                                                            TimeUnit.SECONDS))
+                                                      .retryPolicy(new RetryPolicy<>().withMaxRetries(retryMax)
+                                                                                      .withDelay(Duration.ofSeconds(
+                                                                                              retryDelayS)))
                                                       .maxThreads(getNbThreads())
                                                       .waitMessageTimeout(Duration.ofSeconds(waitMessageTimeoutSeconds))
                                                       .build();

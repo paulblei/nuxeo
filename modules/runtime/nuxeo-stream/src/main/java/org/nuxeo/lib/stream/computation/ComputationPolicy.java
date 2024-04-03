@@ -29,14 +29,14 @@ import net.jodah.failsafe.RetryPolicy;
  */
 public class ComputationPolicy {
 
-    public static final RetryPolicy NO_RETRY = new RetryPolicy().withMaxRetries(0);
+    public static final RetryPolicy<Object> NO_RETRY = new RetryPolicy<Object>().withMaxRetries(0);
 
     /* No retry, abort on failure, no batching */
     public static final ComputationPolicy NONE = new ComputationPolicyBuilder().retryPolicy(NO_RETRY)
                                                                                .continueOnFailure(false)
                                                                                .build();
 
-    protected final RetryPolicy retryPolicy;
+    protected final RetryPolicy<Object> retryPolicy;
 
     protected final int batchCapacity;
 
@@ -54,7 +54,7 @@ public class ComputationPolicy {
         skipFirstFailures = builder.skipFirstFailures;
     }
 
-    public RetryPolicy getRetryPolicy() {
+    public RetryPolicy<Object> getRetryPolicy() {
         return retryPolicy;
     }
 

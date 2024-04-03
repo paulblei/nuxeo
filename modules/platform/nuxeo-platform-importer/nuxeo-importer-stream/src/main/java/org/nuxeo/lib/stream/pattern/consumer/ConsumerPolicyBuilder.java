@@ -28,7 +28,7 @@ import net.jodah.failsafe.RetryPolicy;
 public class ConsumerPolicyBuilder {
     protected BatchPolicy batchPolicy = BatchPolicy.DEFAULT;
 
-    protected RetryPolicy retryPolicy = ConsumerPolicy.NO_RETRY;
+    protected RetryPolicy<Object> retryPolicy = ConsumerPolicy.NO_RETRY;
 
     protected boolean skipFailure = false;
 
@@ -51,7 +51,7 @@ public class ConsumerPolicyBuilder {
         return this;
     }
 
-    public ConsumerPolicyBuilder retryPolicy(RetryPolicy policy) {
+    public ConsumerPolicyBuilder retryPolicy(RetryPolicy<Object> policy) {
         retryPolicy = policy;
         return this;
     }
