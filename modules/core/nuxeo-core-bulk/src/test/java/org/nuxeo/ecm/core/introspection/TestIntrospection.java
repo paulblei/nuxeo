@@ -57,7 +57,7 @@ public class TestIntrospection {
     public void testScaleUp() throws Exception {
         String in = readFile("data/introspection-cluster.json");
         StreamIntrospectionConverter convert = new StreamIntrospectionConverter(in);
-        String out = convert.getActivity();
+        String out = convert.getActivity(1678439100);
         ObjectMapper mapper = new ObjectMapper();
         assertEquals(mapper.readTree(readFile("data/scale-up.json")), mapper.readTree(out));
     }
@@ -66,16 +66,19 @@ public class TestIntrospection {
     public void testScaleIdle() throws Exception {
         String in = readFile("data/introspection-cluster-idle.json");
         StreamIntrospectionConverter convert = new StreamIntrospectionConverter(in);
-        String out = convert.getActivity();
+        String out = convert.getActivity(1678439100);
         ObjectMapper mapper = new ObjectMapper();
         assertEquals(mapper.readTree(readFile("data/scale-idle.json")), mapper.readTree(out));
+        // activity for a given timestamp in the future discards old metrics
+        out = convert.getActivity(1778439100);
+        assertEquals(mapper.readTree(readFile("data/scale-no-data.json")), mapper.readTree(out));
     }
 
     @Test
     public void testScaleConstantLoad() throws Exception {
         String in = readFile("data/introspection-cluster-constant.json");
         StreamIntrospectionConverter convert = new StreamIntrospectionConverter(in);
-        String out = convert.getActivity();
+        String out = convert.getActivity(1709562437);
         ObjectMapper mapper = new ObjectMapper();
         assertEquals(mapper.readTree(readFile("data/scale-constant.json")), mapper.readTree(out));
     }

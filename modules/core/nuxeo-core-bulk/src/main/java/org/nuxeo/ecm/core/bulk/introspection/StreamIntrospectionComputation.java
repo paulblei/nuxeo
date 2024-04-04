@@ -72,7 +72,7 @@ public class StreamIntrospectionComputation extends AbstractComputation {
 
     protected final Map<String, JsonNode> metrics = new HashMap<>();
 
-    protected static final long TTL_SECONDS = 300;
+    protected static final long TTL_SECONDS = 900;
 
     protected String model;
 
@@ -231,6 +231,12 @@ public class StreamIntrospectionComputation extends AbstractComputation {
         log.debug("Removing nodes with old metrics: {}", toRemove);
         toRemove.forEach(metrics::remove);
         Set<String> toKeep = metrics.values().stream().map(json -> json.get("nodeId").asText()).collect(Collectors.toSet());
+        if (toKeep.isEmpty()) {
+            log.warn("No stream metrics received in the last {} seconds", TTL_SECONDS);
+            // Probably a long network partition or suspended system
+            // let's keep the processors in case nodes come back.
+            return;
+        }
         log.debug("List of active nodes: {}", toKeep);
         // Remove processors with inactive nodes and older than TTL
         Iterator<Map.Entry<String, JsonNode>> entries = processors.entrySet().iterator();

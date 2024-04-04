@@ -41,6 +41,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 public class StreamIntrospectionConverter {
     protected static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
+    protected static final long ACTIVE_THRESHOLD_SECONDS = 300L;
+
     protected final String json;
 
     protected final JsonNode root;
@@ -340,16 +342,20 @@ public class StreamIntrospectionConverter {
     }
 
     public String getActivity() {
+        return getActivity(System.currentTimeMillis() / 1000);
+    }
+
+    public String getActivity(long atTimestamp) {
         ObjectMapper mapper = new ObjectMapper();
         ObjectNode ret = mapper.getNodeFactory().objectNode();
-        JsonNode nodes = getClusterNodes();
+        JsonNode nodes = getClusterNodes(atTimestamp);
         int workerCount = 0;
         for (JsonNode node : nodes) {
             if ("worker".equals(node.at("/type").asText())) {
                 workerCount++;
             }
         }
-        JsonNode computations = getActiveComputations();
+        JsonNode computations = getActiveComputations(atTimestamp);
         JsonNode scale = getScaleMetrics(workerCount, (ArrayNode) computations);
         ret.set("scale", scale);
         ret.set("nodes", nodes);
@@ -377,17 +383,17 @@ public class StreamIntrospectionConverter {
         return ret;
     }
 
-    protected JsonNode getActiveComputations() {
+    protected JsonNode getActiveComputations(long atTimestamp) {
         ObjectMapper mapper = new ObjectMapper();
         ArrayNode ret = mapper.getNodeFactory().arrayNode();
         Map<JsonNode, ObjectNode> computations = new HashMap<>();
         JsonNode metrics = root.get("metrics");
-        if (!metrics.isArray()) {
+        if (!metrics.isArray() || metrics.isEmpty()) {
             // no data available ?
             return ret;
         }
         JsonNode processors = root.get("processors");
-        if (!processors.isArray()) {
+        if (!processors.isArray() || processors.isEmpty()) {
             // no data available
             return ret;
         }
@@ -407,6 +413,10 @@ public class StreamIntrospectionConverter {
         }
         // find computation with lag
         for (JsonNode node : metrics) {
+            long ts = node.get("timestamp").asLong();
+            if (atTimestamp - ts > ACTIVE_THRESHOLD_SECONDS) {
+                continue;
+            }
             for (JsonNode metric : node.at("/metrics")) {
                 if ("nuxeo.streams.global.stream.group.lag".equals(metric.get("k").asText())
                         && (metric.get("v").asInt() > 0)) {
@@ -461,7 +471,7 @@ public class StreamIntrospectionConverter {
                     if (comp != null) {
                         ObjectNode compInstance = mapper.getNodeFactory().objectNode();
                         compInstance.set("nodeId", nodeId);
-                        compInstance.put("threads", threads.get(metric.get("computation").asText()));
+                        compInstance.put("threads", threads.getOrDefault(metric.get("computation").asText(), 1));
                         compInstance.set("timestamp", ts);
                         compInstance.set("count", metric.get("count"));
                         compInstance.set("sum", metric.get("sum"));
@@ -523,25 +533,29 @@ public class StreamIntrospectionConverter {
         return ret;
     }
 
-    protected JsonNode getClusterNodes() {
-        Map<JsonNode, ObjectNode> nodes = new HashMap<>();
+    protected JsonNode getClusterNodes(long atTimestamp) {
+        Map<String, ObjectNode> nodes = new HashMap<>();
         ObjectMapper mapper = new ObjectMapper();
         ArrayNode ret = mapper.getNodeFactory().arrayNode();
         JsonNode processors = root.get("processors");
         if (processors.isArray()) {
             for (JsonNode item : processors) {
-
-                nodes.put(item.at("/metadata/nodeId"), item.at("/metadata").deepCopy());
+                nodes.put(item.at("/metadata/nodeId").asText(), item.at("/metadata").deepCopy());
             }
         }
         JsonNode metrics = root.get("metrics");
-        if (processors.isArray()) {
+        Set<String> inactiveNodes = new HashSet<>();
+        if (metrics.isArray()) {
             for (JsonNode item : metrics) {
-                ObjectNode node = nodes.get(item.at("/nodeId"));
+                ObjectNode node = nodes.get(item.at("/nodeId").asText());
                 if (node == null) {
                     continue;
                 }
-                node.put("alive", Instant.ofEpochSecond(item.at("/timestamp").asLong()).toString());
+                long timestamp = item.at("/timestamp").asLong();
+                if (atTimestamp - timestamp > ACTIVE_THRESHOLD_SECONDS) {
+                    inactiveNodes.add(item.at("/nodeId").asText());
+                }
+                node.put("alive", Instant.ofEpochSecond(timestamp).toString());
                 node.put("created", Instant.ofEpochSecond(node.at("/created").asLong()).toString());
                 node.remove("processorName");
                 JsonNode hostMetrics = item.get("metrics");
@@ -560,7 +574,11 @@ public class StreamIntrospectionConverter {
                 }
             }
         }
-        nodes.values().forEach(ret::add);
+        nodes.forEach((nodeId, node) -> {
+            if (!inactiveNodes.contains(nodeId)) {
+                ret.add(node);
+            }
+        });
         return ret;
     }
 
