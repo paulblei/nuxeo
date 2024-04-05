@@ -16,7 +16,7 @@
  * Contributors:
  *     Kevin Leturc <kleturc@nuxeo.com>
  */
-library identifier: "platform-ci-shared-library@v0.0.25"
+library identifier: "platform-ci-shared-library@v0.0.31"
 
 boolean isTriggeredByCron() {
   return currentBuild.getBuildCauses('org.jenkinsci.plugins.parameterizedscheduler.ParameterizedTimerTriggerCause')
@@ -173,6 +173,9 @@ pipeline {
                   gatling("org.nuxeo.cap.bench.Sim90FullGC")
                 }
               } finally {
+                // Redis is in the Jenkins agent pod. Not in the nuxeo-benchmark namespace and deployment.
+                nxK8s.describePod(namespace: "${CURRENT_NAMESPACE}", pod: "${JENKINS_AGENT_NAME}")
+                nxK8s.getPodLogs(namespace: "${CURRENT_NAMESPACE}", pod: "${JENKINS_AGENT_NAME} -c redis", file: "${namespace}_redis.log")
                 // archiveArtifacts doesn't support absolute path so do not use GATLING_TESTS_PATH
                 archiveArtifacts allowEmptyArchive: true, artifacts: 'ftests/nuxeo-server-gatling-tests/target/gatling/**/*'
                 if (params.DEBUG.toBoolean()) {
