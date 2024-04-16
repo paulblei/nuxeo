@@ -114,12 +114,13 @@ public class LifeCycleRegistry extends ContributionFragmentRegistry<LifeCycleDes
         if (lookup == null) {
             synchronized (this) {
                 if (lookup == null) {
-                    lookup = new HashMap<>();
+                    Map<String, LifeCycle> tmpLookup = new HashMap<>();
                     for (var desc : toMap().values()) {
                         if (desc.isEnabled()) {
-                            lookup.put(desc.getName(), getLifeCycle(desc));
+                            tmpLookup.put(desc.getName(), getLifeCycle(desc));
                         }
                     }
+                    lookup = tmpLookup;
                 }
             }
         }
