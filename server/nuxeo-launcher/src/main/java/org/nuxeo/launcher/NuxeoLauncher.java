@@ -1403,7 +1403,7 @@ public class NuxeoLauncher {
      */
     protected void encrypt() throws GeneralSecurityException {
         Crypto crypto = configurationGenerator.getCrypto();
-        String algorithm = cmdLine.getOptionValue(OPTION_ENCRYPT, null);
+        String algorithm = cmdLine.getOptionValue(OPTION_ENCRYPT);
         if (params.length == 0) {
             Console console = System.console();
             String encryptedString;
@@ -1520,7 +1520,7 @@ public class NuxeoLauncher {
     protected void setConfigProperties() throws ConfigurationException, IOException, GeneralSecurityException {
         Crypto crypto = configurationGenerator.getCrypto();
         boolean doEncrypt = cmdLine.hasOption(OPTION_ENCRYPT);
-        String algorithm = cmdLine.getOptionValue(OPTION_ENCRYPT, null);
+        String algorithm = cmdLine.getOptionValue(OPTION_ENCRYPT);
         Map<String, String> changedParameters = new HashMap<>();
         for (Iterator<String> iterator = Arrays.asList(params).iterator(); iterator.hasNext();) {
             String key = iterator.next();
