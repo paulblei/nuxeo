@@ -74,6 +74,8 @@ public class StreamIntrospectionComputation extends AbstractComputation {
 
     protected static final long TTL_SECONDS = 900;
 
+    protected static final long CHECK_INTERVAL_MS = 60_000L;
+
     protected String model;
 
     protected final MetricRegistry registry = SharedMetricRegistries.getOrCreate(MetricsService.class.getName());
@@ -81,6 +83,8 @@ public class StreamIntrospectionComputation extends AbstractComputation {
     protected int scaleMetric = 0;
 
     protected int currentWorkerNodes = 1;
+
+    protected long lastMetricsReceived;
 
     public StreamIntrospectionComputation() {
         super(NAME, 2, 0);
@@ -100,6 +104,8 @@ public class StreamIntrospectionComputation extends AbstractComputation {
         loadModel(getKvStore().getString(INTROSPECTION_KEY));
         registry.register(scaleMetric, (Gauge<Integer>) this::getScaleMetric);
         registry.register(workerMetric, (Gauge<Integer>) this::getCurrentWorkerNodes);
+        context.setTimer("check", System.currentTimeMillis() + 2 * CHECK_INTERVAL_MS);
+        lastMetricsReceived = 0;
     }
 
     protected int getCurrentWorkerNodes() {
@@ -146,6 +152,12 @@ public class StreamIntrospectionComputation extends AbstractComputation {
     }
 
     @Override
+    public void processTimer(ComputationContext context, String key, long timestamp) {
+        removeOldNodes();
+        context.setTimer("check", System.currentTimeMillis() + CHECK_INTERVAL_MS);
+    }
+
+    @Override
     public void processRecord(ComputationContext context, String inputStreamName, Record record) {
         JsonNode json = getJson(record);
         if (json != null) {
@@ -154,10 +166,10 @@ public class StreamIntrospectionComputation extends AbstractComputation {
             } else if (INPUT_2.equals(inputStreamName)) {
                 if (json.has("nodeId")) {
                     metrics.put(json.get("nodeId").asText(), json);
+                    lastMetricsReceived = System.currentTimeMillis() / 1000;
                 }
             }
         }
-        removeOldNodes();
         buildModel();
         updateModel();
         context.askForCheckpoint();
@@ -221,23 +233,30 @@ public class StreamIntrospectionComputation extends AbstractComputation {
     }
 
     protected void removeOldNodes() {
-        // Remove all nodes with metrics older than TTL
+        if (lastMetricsReceived == 0) {
+            log.debug("Don't clean until some metrics has been received");
+            return;
+        }
         long now = System.currentTimeMillis() / 1000;
+        if (now - lastMetricsReceived > TTL_SECONDS) {
+            log.warn("No stream metrics received for {} seconds.", now - lastMetricsReceived);
+            // Probably a long network partition or suspended system
+            // let's keep the processors in case nodes come back.
+            return;
+        }
+        // Remove all nodes with metrics older than TTL
         List<String> toRemove = metrics.values()
                                        .stream()
                                        .filter(json -> (now - json.get("timestamp").asLong()) > TTL_SECONDS)
                                        .map(json -> json.get("nodeId").asText())
                                        .collect(Collectors.toList());
-        log.debug("Removing nodes with old metrics: {}", toRemove);
         toRemove.forEach(metrics::remove);
         Set<String> toKeep = metrics.values().stream().map(json -> json.get("nodeId").asText()).collect(Collectors.toSet());
-        if (toKeep.isEmpty()) {
-            log.warn("No stream metrics received in the last {} seconds", TTL_SECONDS);
-            // Probably a long network partition or suspended system
-            // let's keep the processors in case nodes come back.
-            return;
+        if (!toRemove.isEmpty()) {
+            log.warn("Node(s) removed from the cluster: {}, alive: {}.", toRemove, toKeep);
+        } else {
+            log.debug("Node(s) alive in the cluster: {}", toKeep);
         }
-        log.debug("List of active nodes: {}", toKeep);
         // Remove processors with inactive nodes and older than TTL
         Iterator<Map.Entry<String, JsonNode>> entries = processors.entrySet().iterator();
         while (entries.hasNext()) {
