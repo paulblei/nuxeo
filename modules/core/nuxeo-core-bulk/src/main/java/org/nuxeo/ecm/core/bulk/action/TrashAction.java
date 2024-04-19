@@ -44,6 +44,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.nuxeo.ecm.core.api.CoreSession;
 import org.nuxeo.ecm.core.api.DocumentModelList;
+import org.nuxeo.ecm.core.api.DocumentNotFoundException;
 import org.nuxeo.ecm.core.api.DocumentRef;
 import org.nuxeo.ecm.core.api.DocumentSecurityException;
 import org.nuxeo.ecm.core.api.IdRef;
@@ -108,7 +109,7 @@ public class TrashAction implements StreamProcessorTopology {
             }
             try {
                 session.removeDocuments(proxies.toArray(new DocumentRef[0]));
-            } catch (DocumentSecurityException e) {
+            } catch (DocumentSecurityException | DocumentNotFoundException e) {
                 log.warn("Cannot remove proxies", e);
             }
             try {
