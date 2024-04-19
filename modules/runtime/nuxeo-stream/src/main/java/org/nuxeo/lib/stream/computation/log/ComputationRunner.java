@@ -437,6 +437,8 @@ public class ComputationRunner implements Runnable, RebalanceListener {
             logRecord = tailer.read(timeoutRead);
         } catch (RebalanceException e) {
             // the revoke has done a checkpoint we can continue
+        } catch (IllegalArgumentException e) {
+            log.error("Unable to decode record, skipping", e);
         }
         if (logRecord == null) {
             return false;

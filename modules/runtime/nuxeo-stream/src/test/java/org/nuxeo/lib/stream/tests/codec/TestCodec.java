@@ -34,7 +34,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.EnumSet;
 
-import org.apache.avro.message.MissingSchemaException;
 import org.apache.avro.reflect.ReflectData;
 import org.junit.Assume;
 import org.junit.Ignore;
@@ -100,7 +99,7 @@ public class TestCodec {
         try {
             codec2.decode(data1);
             fail("There is no schema store on codec2 so it can not decode a MessageV1");
-        } catch (MissingSchemaException e) {
+        } catch (IllegalArgumentException e) {
             // expected
         }
 

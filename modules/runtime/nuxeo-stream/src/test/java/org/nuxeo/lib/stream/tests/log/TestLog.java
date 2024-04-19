@@ -940,6 +940,28 @@ public abstract class TestLog {
         }
     }
 
+    @Test
+    public void checkInvalidMessageInStream() throws Exception {
+        final int LOG_SIZE = 1;
+        // Append a KeyValueMessage into a stream
+        Codec<KeyValueMessage> codec = new AvroMessageCodec<>(KeyValueMessage.class);
+        manager.createIfNotExists(logName, LOG_SIZE);
+        LogAppender<KeyValueMessage> appender = manager.getAppender(logName, codec);
+        appender.append(0, KeyValueMessage.of("foo", "bar".getBytes(UTF_8)));
+
+        // Reset the manager and pretend we want to read a Record instead of KeyValueMessage
+        resetManager();
+        Codec<Record> recordCodec = new AvroMessageCodec<>(Record.class);
+        LogAppender<Record> recordAppender = manager.getAppender(logName, recordCodec);
+        Name group = Name.ofUrn("test/defaultTest");
+        try (LogTailer<Record> tailer = manager.createTailer(group, LogPartition.of(logName, 0))) {
+            tailer.read(DEF_TIMEOUT);
+            fail("Decoding a KeyValue message into Record should raise an exception");
+        } catch (IllegalArgumentException e) {
+            // expected
+        }
+    }
+
     protected String readKey(LogTailer<KeyValueMessage> tailer) throws InterruptedException {
         try {
             return tailer.read(DEF_TIMEOUT).message().key();

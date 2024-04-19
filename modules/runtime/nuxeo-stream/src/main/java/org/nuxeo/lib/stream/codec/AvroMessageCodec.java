@@ -24,6 +24,7 @@ import org.apache.avro.Schema;
 import org.apache.avro.message.BadHeaderException;
 import org.apache.avro.message.BinaryMessageDecoder;
 import org.apache.avro.message.BinaryMessageEncoder;
+import org.apache.avro.message.MissingSchemaException;
 import org.apache.avro.reflect.ReflectData;
 
 /**
@@ -76,7 +77,7 @@ public class AvroMessageCodec<T> implements Codec<T> {
     public T decode(byte[] data) {
         try {
             return decoder.decode(data, null);
-        } catch (IOException | BadHeaderException e) {
+        } catch (IOException | BadHeaderException | MissingSchemaException e) {
             throw new IllegalArgumentException(e);
         }
     }
