@@ -2392,6 +2392,16 @@
       </dependency>
       <dependency>
         <groupId>io.netty</groupId>
+        <artifactId>netty-codec-http2</artifactId>
+        <version>${netty.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.netty</groupId>
+        <artifactId>netty-codec-socks</artifactId>
+        <version>${netty.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.netty</groupId>
         <artifactId>netty-common</artifactId>
         <version>${netty.version}</version>
       </dependency>
@@ -2429,7 +2439,7 @@
       </dependency>
       <dependency>
         <groupId>io.netty</groupId>
-        <artifactId>netty-codec-http2</artifactId>
+        <artifactId>netty-transport-native-unix-common</artifactId>
         <version>${netty.version}</version>
       </dependency>
       <dependency>
@@ -2864,6 +2874,13 @@
         <artifactId>postgresql</artifactId>
         <version>42.7.3</version>
       </dependency>
+      <!-- fix transitive dependency of org.postgresql:postgresql to avoid multiple versions in dependency graph -->
+      <dependency>
+        <groupId>org.checkerframework</groupId>
+        <artifactId>checker-qual</artifactId>
+        <version>3.42.0</version>
+      </dependency>
+
       <dependency>
         <groupId>mysql</groupId>
         <artifactId>mysql-connector-java</artifactId>
@@ -3099,6 +3116,17 @@
         <groupId>com.google.guava</groupId>
         <artifactId>guava</artifactId>
         <version>32.1.3-jre</version>
+      </dependency>
+      <!-- fix transitive dependencies of com.google.guava:guava to avoid multiple versions in dependency graph -->
+      <dependency>
+        <groupId>com.google.errorprone</groupId>
+        <artifactId>error_prone_annotations</artifactId>
+        <version>2.21.1</version>
+      </dependency>
+      <dependency>
+        <groupId>com.google.guava</groupId>
+        <artifactId>failureaccess</artifactId>
+        <version>1.0.1</version>
       </dependency>
 
       <dependency>
@@ -3914,6 +3942,28 @@
         <artifactId>protobuf-java-util</artifactId>
         <version>${protobuf.java.version}</version>
       </dependency>
+      <!-- fix transitive dependencies of com.google.cloud:google-cloud-storage to avoid multiple versions in dependency graph -->
+      <dependency>
+        <groupId>com.google.http-client</groupId>
+        <artifactId>google-http-client-apache-v2</artifactId>
+        <version>1.44.1</version>
+      </dependency>
+      <dependency>
+        <groupId>com.google.http-client</groupId>
+        <artifactId>google-http-client-gson</artifactId>
+        <version>1.44.1</version>
+      </dependency>
+      <dependency>
+        <groupId>io.grpc</groupId>
+        <artifactId>grpc-api</artifactId>
+        <version>1.62.2</version>
+      </dependency>
+      <dependency>
+        <groupId>io.grpc</groupId>
+        <artifactId>grpc-context</artifactId>
+        <version>1.62.2</version>
+      </dependency>
+
       <dependency>
         <groupId>com.azure</groupId>
         <artifactId>azure-storage-blob</artifactId>
@@ -4238,6 +4288,12 @@
         <artifactId>auto-value</artifactId>
         <version>1.10.4</version>
       </dependency>
+      <!-- fix transitive dependency of io.opencensus:opencensus-impl to avoid multiple versions in dependency graph -->
+      <dependency>
+        <groupId>com.lmax</groupId>
+        <artifactId>disruptor</artifactId>
+        <version>3.4.2</version>
+      </dependency>
 
       <dependency>
         <groupId>net.jodah</groupId>
@@ -4306,6 +4362,27 @@
         <groupId>org.openjdk.nashorn</groupId>
         <artifactId>nashorn-core</artifactId>
         <version>15.4</version>
+      </dependency>
+      <!-- fix transitive dependencies of org.openjdk.nashorn:nashorn-core to avoid multiple versions in dependency graph -->
+      <dependency>
+        <groupId>org.ow2.asm</groupId>
+        <artifactId>asm-analysis</artifactId>
+        <version>7.3.1</version>
+      </dependency>
+      <dependency>
+        <groupId>org.ow2.asm</groupId>
+        <artifactId>asm-commons</artifactId>
+        <version>7.3.1</version>
+      </dependency>
+      <dependency>
+        <groupId>org.ow2.asm</groupId>
+        <artifactId>asm-tree</artifactId>
+        <version>7.3.1</version>
+      </dependency>
+      <dependency>
+        <groupId>org.ow2.asm</groupId>
+        <artifactId>asm-util</artifactId>
+        <version>7.3.1</version>
       </dependency>
     </dependencies>
   </dependencyManagement>
