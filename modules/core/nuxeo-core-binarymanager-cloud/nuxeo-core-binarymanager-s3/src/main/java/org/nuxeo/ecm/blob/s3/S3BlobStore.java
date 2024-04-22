@@ -541,28 +541,30 @@ public class S3BlobStore extends AbstractBlobStore {
 
     @Override
     public boolean copyBlobIsOptimized(BlobStore sourceStore) {
-        return sourceStore.unwrap() instanceof S3BlobStore;
+        return !config.useClientSideEncryption && sourceStore.unwrap() instanceof S3BlobStore s3SrcStore
+                && !s3SrcStore.config.useClientSideEncryption;
     }
 
     @Override
     public String copyOrMoveBlob(String key, BlobStore sourceStore, String sourceKey, boolean atomicMove)
             throws IOException {
         BlobStore unwrappedSourceStore = sourceStore.unwrap();
-        if (unwrappedSourceStore instanceof S3BlobStore) {
-            // attempt direct S3-level copy
-            S3BlobStore sourceS3BlobStore = (S3BlobStore) unwrappedSourceStore;
-            try {
-                String returnedKey = copyOrMoveBlob(key, sourceS3BlobStore, sourceKey, atomicMove);
-                if (returnedKey != null) {
-                    return returnedKey;
+        if (unwrappedSourceStore instanceof S3BlobStore srcS3Store) {
+            if (!config.useClientSideEncryption && !srcS3Store.config.useClientSideEncryption) {
+                // attempt direct S3-level copy
+                try {
+                    String returnedKey = copyOrMoveBlob(key, srcS3Store, sourceKey, atomicMove);
+                    if (returnedKey != null) {
+                        return returnedKey;
+                    }
+                } catch (AmazonServiceException e) {
+                    if (isMissingKey(e)) {
+                        logTrace("<--", "missing");
+                        // source not found
+                        return null;
+                    }
+                    throw new IOException(e);
                 }
-            } catch (AmazonServiceException e) {
-                if (isMissingKey(e)) {
-                    logTrace("<--", "missing");
-                    // source not found
-                    return null;
-                }
-                throw new IOException(e);
             }
             // fall through if not copied
         }

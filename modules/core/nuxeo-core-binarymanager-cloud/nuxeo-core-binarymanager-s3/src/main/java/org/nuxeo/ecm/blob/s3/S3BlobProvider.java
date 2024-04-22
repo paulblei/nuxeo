@@ -109,6 +109,19 @@ public class S3BlobProvider extends BlobStoreBlobProvider implements S3ManagedTr
         return store;
     }
 
+    /**
+     * @since 2023.12
+     */
+    @Override
+    public boolean allowDirectDownload() {
+        var allow = super.allowDirectDownload();
+        if (allow && config.useClientSideEncryption) {
+            log.warn("Cannot allow s3 direct download with client side encryption enabled.");
+            return false;
+        }
+        return allow;
+    }
+
     protected S3BlobStoreConfiguration getConfiguration(Map<String, String> properties) throws IOException {
         return new S3BlobStoreConfiguration(properties);
     }
