@@ -3621,6 +3621,11 @@
             <groupId>javax.xml.bind</groupId>
             <artifactId>jsr173_api</artifactId>
           </exclusion>
+          <!-- banned -->
+          <exclusion>
+            <groupId>log4j</groupId>
+            <artifactId>log4j</artifactId>
+          </exclusion>
         </exclusions>
       </dependency>
       <dependency>
