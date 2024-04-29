@@ -2932,6 +2932,11 @@
             <groupId>cglib</groupId>
             <artifactId>cglib</artifactId>
           </exclusion>
+          <!-- not needed and might pollute the hotfix package build -->
+          <exclusion>
+            <groupId>com.google.code.findbugs</groupId>
+            <artifactId>annotations</artifactId>
+          </exclusion>
         </exclusions>
       </dependency>
       <dependency>
