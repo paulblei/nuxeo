@@ -3497,11 +3497,25 @@
         <groupId>org.opensaml</groupId>
         <artifactId>opensaml-messaging-impl</artifactId>
         <version>${opensaml.version}</version>
+        <exclusions>
+          <!-- we use io.dropwizard.metrics5 -->
+          <exclusion>
+            <groupId>io.dropwizard.metrics</groupId>
+            <artifactId>metrics-core</artifactId>
+          </exclusion>
+        </exclusions>
       </dependency>
       <dependency>
         <groupId>org.opensaml</groupId>
         <artifactId>opensaml-profile-impl</artifactId>
         <version>${opensaml.version}</version>
+        <exclusions>
+          <!-- we use io.dropwizard.metrics5 -->
+          <exclusion>
+            <groupId>io.dropwizard.metrics</groupId>
+            <artifactId>metrics-core</artifactId>
+          </exclusion>
+        </exclusions>
       </dependency>
       <dependency>
         <groupId>org.opensaml</groupId>
@@ -3517,6 +3531,11 @@
           <exclusion>
             <groupId>org.apache.velocity</groupId>
             <artifactId>velocity-engine-core</artifactId>
+          </exclusion>
+          <!-- we use io.dropwizard.metrics5 -->
+          <exclusion>
+            <groupId>io.dropwizard.metrics</groupId>
+            <artifactId>metrics-core</artifactId>
           </exclusion>
         </exclusions>
       </dependency>
@@ -4360,6 +4379,13 @@
         <groupId>org.coursera</groupId>
         <artifactId>metrics-datadog</artifactId>
         <version>2.0.0-RC2</version>
+        <exclusions>
+          <!-- we use io.dropwizard.metrics5 -->
+          <exclusion>
+            <groupId>io.dropwizard.metrics</groupId>
+            <artifactId>metrics-core</artifactId>
+          </exclusion>
+        </exclusions>
       </dependency>
       <dependency>
         <groupId>com.datadoghq</groupId>
