@@ -1,0 +1,46 @@
+{
+  "type" : "record",
+  "name" : "BlobDomainEvent",
+  "namespace" : "org.nuxeo.ecm.core.blob.stream",
+  "fields" : [ {
+    "name" : "source",
+    "type" : "string"
+  }, {
+    "name" : "event",
+    "type" : "string"
+  }, {
+    "name" : "blobKey",
+    "type" : "string"
+  }, {
+    "name" : "repository",
+    "type" : "string"
+  }, {
+    "name" : "user",
+    "type" : [ "null", "string" ],
+    "default" : null
+  }, {
+    "name" : "docId",
+    "type" : [ "null", "string" ],
+    "default" : null
+  }, {
+    "name" : "xpath",
+    "type" : [ "null", "string" ],
+    "default" : null
+  }, {
+    "name" : "blobDigest",
+    "type" : [ "null", "string" ],
+    "default" : null
+  }, {
+    "name" : "blobLength",
+    "type" : [ "null", "long" ],
+    "default" : null
+  }, {
+    "name" : "mimeType",
+    "type" : [ "null", "string" ],
+    "default" : null
+  }, {
+    "name" : "fileName",
+    "type" : [ "null", "string" ],
+    "default" : null
+  } ]
+}

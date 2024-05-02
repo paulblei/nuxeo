@@ -13,6 +13,8 @@
     <schema name="DataBucket-2023.0" file="avro/DataBucket-0xEB04211B6C6C3B5F.avsc" />
     <schema name="BulkBucket-2023.0" file="avro/BulkBucket-0xCC59A5FF2725F7AF.avsc" />
     <schema name="NuxeoLogEvent-2023.7" file="avro/NuxeoLogEvent-0xCA271CCAAF986742.avsc" />
+    <schema name="BlobDomainEvent-2023.0,BlobDomainEvent-2021.54" file="avro/BlobDomainEvent-0x12FED19D1674451B.avsc" />
+    <schema name="DocumentDomainEvent-2023.3,DocumentDomainEvent-2021.54" file="avro/DocumentDomainEvent-0x65D1150CBADF06B3.avsc" />
     <!-- Register 2021 schemas for smooth upgrade -->
     <schema name="Record-2021.0" file="avro/Record-0xEE727BE73E8D498.avsc" />
     <schema name="BulkCommand-2021.6" file="avro/BulkCommand-0x5F64BA8BF77C9B7D.avsc" />
@@ -20,6 +22,8 @@
     <schema name="BulkStatus-2021.7" file="avro/BulkStatus-0xA58F151AC3B3DEBF.avsc" />
     <schema name="BulkStatus-2021.38" file="avro/BulkStatus-0xCE1D96C3B11E127.avsc" />
     <schema name="DataBucket-2021.0" file="avro/DataBucket-0xB62494C74E419198.avsc" />
+    <schema name="BlobDomainEvent-2021.34" file="avro/BlobDomainEvent-0x230B73B9BFB09F33.avsc" />
+    <schema name="DocumentDomainEvent-2021.44" file="avro/DocumentDomainEvent-0x370465EA76EBBAE3.avsc" />
     <!-- Same schemas in 2023 -->
     <!-- schema name="BulkBucket-2021.0" file="avro/BulkBucket-0xCC59A5FF2725F7AF.avsc" / -->
   </extension>

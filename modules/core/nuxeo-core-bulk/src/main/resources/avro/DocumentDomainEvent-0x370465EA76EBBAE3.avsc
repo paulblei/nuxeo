@@ -1,0 +1,39 @@
+{
+  "type" : "record",
+  "name" : "DocumentDomainEvent",
+  "namespace" : "org.nuxeo.ecm.core.model.stream",
+  "fields" : [ {
+    "name" : "source",
+    "type" : "string"
+  }, {
+    "name" : "event",
+    "type" : "string"
+  }, {
+    "name" : "repository",
+    "type" : "string"
+  }, {
+    "name" : "id",
+    "type" : "string"
+  }, {
+    "name" : "name",
+    "type" : [ "null", "string" ],
+    "default" : null
+  }, {
+    "name" : "type",
+    "type" : "string"
+  }, {
+    "name" : "user",
+    "type" : [ "null", "string" ],
+    "default" : null
+  }, {
+    "name" : "isVersion",
+    "type" : "boolean"
+  }, {
+    "name" : "isProxy",
+    "type" : "boolean"
+  }, {
+    "name" : "seriesId",
+    "type" : [ "null", "string" ],
+    "default" : null
+  } ]
+}
