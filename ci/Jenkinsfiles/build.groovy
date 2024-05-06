@@ -302,7 +302,14 @@ pipeline {
       steps {
         container('maven') {
           script {
-            nxGit.cloneRepository(name: 'nuxeo-hf-protection', branch: env.CHANGE_TARGET, relativePath: 'nuxeo-patches')
+            def branch = env.CHANGE_TARGET
+            // retrieve reference branch (ie: 202x) if PR targets another PR
+            if (nxUtils.isPullRequest()) {
+              withCredentials([string(credentialsId: 'github', variable: 'GITHUB_TOKEN')]) {
+                branch = sh(returnStdout: true, script: "gh pr view ${branch} --json baseRefName -q .baseRefName 2>/dev/null || echo '${branch}'")
+              }
+            }
+            nxGit.cloneRepository(name: 'nuxeo-hf-protection', branch: branch, relativePath: 'nuxeo-patches')
           }
           dir('nuxeo-patches') {
             sh './prepare-patches'
