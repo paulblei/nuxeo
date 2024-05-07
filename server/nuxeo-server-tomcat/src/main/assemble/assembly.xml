@@ -171,7 +171,7 @@
         <include name="kafka-clients-*" />
         <include name="opencensus-api-*" />
         <include name="opencensus-impl-core-*" />
-        <include name="grpc-context-*" />
+        <include name="grpc-api-*" />
         <include name="avro-*" />
       </fileset>
     </copy>
