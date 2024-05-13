@@ -15,10 +15,10 @@
  */
 package org.nuxeo.lib.stream.log.mem;
 
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.Condition;
@@ -26,8 +26,6 @@ import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.commons.lang3.mutable.MutableBoolean;
 import org.nuxeo.lib.stream.log.Name;
-
-import com.google.common.base.Objects;
 
 /**
  * Memory implementation of Log partition.
@@ -166,7 +164,7 @@ public class MemLogPartition {
                     return null;
                 }
             }
-            if (!Objects.equal(tag, msg.tag())) {
+            if (!Objects.equals(tag, msg.tag())) {
                 throw new IllegalArgumentException("bad tag");
             }
             BytesAndOffset res = new BytesAndOffset(msg.bytes(), offset);
