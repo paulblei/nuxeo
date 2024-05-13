@@ -26,8 +26,8 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.anyBoolean;
 import static org.mockito.Matchers.anyString;
@@ -1052,26 +1052,19 @@ public class TestNuxeoAuthenticationFilter {
 
         // invalid parameter
         when(request.getParameter(eq(REQUESTED_URL))).thenReturn(":joe");
-        try {
-            filter.checkRequestedURL(request);
-            fail("Invalid requestedUrl parameter should have thrown a NuxeoException");
-        } catch (NuxeoException e) {
-            assertEquals(400, e.getStatusCode());
-        }
+        assertEquals(400, assertThrows(NuxeoException.class, () -> filter.checkRequestedURL(request)).getStatusCode());
 
         // acceptable parameter
         when(request.getParameter(eq(REQUESTED_URL))).thenReturn("ui/");
         filter.checkRequestedURL(request);
 
-        // malicious redirect
-
+        // malicious redirects
         when(request.getParameter(eq(REQUESTED_URL))).thenReturn("https://yogosha.com");
-        try {
-            filter.checkRequestedURL(request);
-            fail("Bad requestedUrl parameter should have thrown a NuxeoException");
-        } catch (NuxeoException e) {
-            assertEquals(400, e.getStatusCode());
-        }
+        assertEquals(400, assertThrows(NuxeoException.class, () -> filter.checkRequestedURL(request)).getStatusCode());
+        when(request.getParameter(eq(REQUESTED_URL))).thenReturn("//yogosha.com");
+        assertEquals(400, assertThrows(NuxeoException.class, () -> filter.checkRequestedURL(request)).getStatusCode());
+        when(request.getParameter(eq(REQUESTED_URL))).thenReturn("////yogosha.com");
+        assertEquals(400, assertThrows(NuxeoException.class, () -> filter.checkRequestedURL(request)).getStatusCode());
     }
 
 }

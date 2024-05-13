@@ -1149,8 +1149,8 @@ public class NuxeoAuthenticationFilter implements Filter {
     }
 
     /**
-     * Checks if the {@value NXAuthConstants#REQUESTED_URL} request parameter is an absolute URL, in which case, throws
-     * a NuxeoException with a 400 status code.
+     * Checks if the {@value NXAuthConstants#REQUESTED_URL} request parameter is an absolute URL or starts with "//", in
+     * which case, throws a NuxeoException with a 400 status code.
      *
      * @since 11.5
      */
@@ -1160,7 +1160,7 @@ public class NuxeoAuthenticationFilter implements Filter {
             return;
         }
         try {
-            if (URI.create(requestedURL).isAbsolute()) {
+            if (URI.create(requestedURL).isAbsolute() || requestedURL.startsWith("//")) {
                 throw new NuxeoException(SC_BAD_REQUEST);
             }
         } catch (IllegalArgumentException e) {
