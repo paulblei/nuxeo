@@ -2300,6 +2300,13 @@
         <groupId>org.apache.commons</groupId>
         <artifactId>commons-dbcp2</artifactId>
         <version>2.12.0</version>
+        <exclusions>
+          <!-- exclude jakarta artifacts which conflict with their javax equivalent -->
+          <exclusion>
+            <groupId>jakarta.transaction</groupId>
+            <artifactId>jakarta.transaction-api</artifactId>
+          </exclusion>
+        </exclusions>
       </dependency>
       <dependency>
         <!-- not used by Nuxeo anymore, but needed by some dependencies -->
@@ -3045,6 +3052,11 @@
           <exclusion>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
+          </exclusion>
+          <!-- jakarta artifacts are not allowed, mockserver-netty/mockserver-core/swagger-parser/swagger-core depends on it -->
+          <exclusion>
+            <groupId>jakarta.validation</groupId>
+            <artifactId>jakarta.validation-api</artifactId>
           </exclusion>
         </exclusions>
       </dependency>
@@ -4310,6 +4322,17 @@
         <groupId>org.apache.thrift</groupId>
         <artifactId>libthrift</artifactId>
         <version>0.20.0</version>
+        <exclusions>
+          <!-- exclude jakarta artifacts which conflict with their javax equivalent -->
+          <exclusion>
+            <groupId>jakarta.annotation</groupId>
+            <artifactId>jakarta.annotation-api</artifactId>
+          </exclusion>
+          <exclusion>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+          </exclusion>
+        </exclusions>
       </dependency>
       <!-- transitive dependency of opencensus-exporter-trace-datadog to upgrade -->
       <dependency>
@@ -5006,9 +5029,18 @@
               </bannedDependencies>
               <bannedDependencies>
                 <excludes>
-                  <exclude>jakarta.activation:jakarta.activation-api</exclude> <!-- part of the default Nuxeo Tomcat server -->
+                  <exclude>jakarta.activation:jakarta.activation-api</exclude>
+                  <exclude>jakarta.annotation:jakarta.annotation-api</exclude>
+                  <exclude>jakarta.inject:jakarta.inject-api</exclude>
+                  <exclude>jakarta.mail:jakarta.mail-api</exclude>
+                  <exclude>jakarta.persistence:jakarta.persistence-api</exclude>
+                  <exclude>jakarta.servlet:jakarta.servlet-api</exclude>
+                  <exclude>jakarta.xml.soap:jakarta.xml.soap-api</exclude>
+                  <exclude>jakarta.transaction:jakarta.transaction-api</exclude>
+                  <exclude>jakarta.validation:jakarta.validation-api</exclude>
+                  <exclude>jakarta.ws.rs:jakarta.ws.rs-api</exclude>
                 </excludes>
-                <message>jakarta.activation:jakarta.activation-api must not be used, it's already part of the default Nuxeo Tomcat server</message>
+                <message>jakarta artifacts must not be used, use their javax equivalent</message>
               </bannedDependencies>
               <!-- logging exclusions -->
               <bannedDependencies>
