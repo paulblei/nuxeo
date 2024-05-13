@@ -67,9 +67,6 @@
     <nuxeo.ftest.version>1.8.10</nuxeo.ftest.version>
     <nuxeo.java.client.version>3.14.0</nuxeo.java.client.version>
 
-    <servlet-api.version>4.0.1</servlet-api.version>
-    <jaxb-api.version>2.3.3</jaxb-api.version>
-    <jaxb.version>2.3.9</jaxb.version>
     <tomcat.version>9.0.89</tomcat.version>
     <opensearch.version>1.3.16</opensearch.version>
     <netty.version>4.1.109.Final</netty.version>
@@ -945,12 +942,6 @@
         <groupId>org.nuxeo.ecm.platform</groupId>
         <artifactId>nuxeo-web-resources-rest</artifactId>
         <version>${nuxeo.platform.version}</version>
-      </dependency>
-
-      <dependency>
-        <groupId>javax.validation</groupId>
-        <artifactId>validation-api</artifactId>
-        <version>1.1.0.Final</version>
       </dependency>
 
       <!-- Nuxeo DM -->
@@ -2112,40 +2103,22 @@
           </exclusion>
         </exclusions>
       </dependency>
-      <!-- jakarta xml - (former javax) -->
+
+      <!-- specifications -->
       <dependency>
-        <groupId>jakarta.xml.bind</groupId>
-        <artifactId>jakarta.xml.bind-api</artifactId>
-        <version>${jaxb-api.version}</version>
-        <exclusions>
-          <exclusion>
-            <!-- use com.sun.activation:javax.activation-api instead -->
-            <groupId>jakarta.activation</groupId>
-            <artifactId>jakarta.activation-api</artifactId>
-          </exclusion>
-        </exclusions>
-      </dependency>
-      <dependency>
-        <groupId>com.sun.xml.bind</groupId>
-        <artifactId>jaxb-impl</artifactId>
-        <version>${jaxb.version}</version>
-        <exclusions>
-          <exclusion>
-            <!-- use com.sun.activation:javax.activation instead -->
-            <groupId>com.sun.activation</groupId>
-            <artifactId>jakarta.activation</artifactId>
-          </exclusion>
-        </exclusions>
-      </dependency>
-      <dependency>
-        <groupId>org.codehaus.woodstox</groupId>
-        <artifactId>stax2-api</artifactId>
-        <version>4.2.2</version>
+        <groupId>com.sun.activation</groupId>
+        <artifactId>javax.activation</artifactId>
+        <version>1.2.0</version>
       </dependency>
       <dependency>
         <groupId>javax.annotation</groupId>
-        <artifactId>jsr250-api</artifactId>
-        <version>1.0</version>
+        <artifactId>javax.annotation-api</artifactId> <!-- provided by Tomcat -->
+        <version>1.2</version>
+      </dependency>
+      <dependency>
+        <groupId>javax.inject</groupId>
+        <artifactId>javax.inject</artifactId>
+        <version>1</version>
       </dependency>
       <dependency>
         <groupId>javax.mail</groupId>
@@ -2169,9 +2142,29 @@
         <version>2.2</version>
       </dependency>
       <dependency>
+        <groupId>javax.script</groupId>
+        <artifactId>groovy-engine</artifactId>
+        <version>1.0</version>
+      </dependency>
+      <dependency>
+        <groupId>javax.script</groupId>
+        <artifactId>jexl-engine</artifactId>
+        <version>1.0</version>
+      </dependency>
+      <dependency>
+        <groupId>javax.script</groupId>
+        <artifactId>js-engine</artifactId>
+        <version>1.0</version>
+      </dependency>
+      <dependency>
+        <groupId>javax.script</groupId>
+        <artifactId>bsh-engine</artifactId>
+        <version>1.0</version>
+      </dependency>
+      <dependency>
         <groupId>javax.servlet</groupId>
-        <artifactId>javax.servlet-api</artifactId>
-        <version>${servlet-api.version}</version>
+        <artifactId>javax.servlet-api</artifactId> <!-- provided by Tomcat -->
+        <version>4.0.1</version>
       </dependency>
       <dependency>
         <groupId>javax.servlet</groupId>
@@ -2182,6 +2175,51 @@
         <groupId>javax.transaction</groupId>
         <artifactId>javax.transaction-api</artifactId>
         <version>1.3</version>
+      </dependency>
+      <dependency>
+        <groupId>javax.validation</groupId>
+        <artifactId>validation-api</artifactId>
+        <version>1.1.0.Final</version>
+      </dependency>
+      <dependency>
+        <groupId>javax.ws.rs</groupId>
+        <artifactId>jsr311-api</artifactId>
+        <version>1.1.1</version>
+      </dependency>
+      <dependency>
+        <groupId>jakarta.xml.bind</groupId>
+        <artifactId>jakarta.xml.bind-api</artifactId>
+        <version>2.3.3</version>
+        <exclusions>
+          <exclusion>
+            <!-- use com.sun.activation:javax.activation-api instead -->
+            <groupId>jakarta.activation</groupId>
+            <artifactId>jakarta.activation-api</artifactId>
+          </exclusion>
+        </exclusions>
+      </dependency>
+      <dependency>
+        <groupId>com.sun.xml.bind</groupId>
+        <artifactId>jaxb-impl</artifactId>
+        <version>2.3.9</version>
+        <exclusions>
+          <exclusion>
+            <!-- use com.sun.activation:javax.activation instead -->
+            <groupId>com.sun.activation</groupId>
+            <artifactId>jakarta.activation</artifactId>
+          </exclusion>
+        </exclusions>
+      </dependency>
+      <dependency>
+        <groupId>javax.xml.ws</groupId>
+        <artifactId>jaxws-api</artifactId>
+        <version>2.3.1</version>
+        <exclusions>
+          <exclusion>
+            <groupId>javax.xml.bind</groupId>
+            <artifactId>jaxb-api</artifactId>
+          </exclusion>
+        </exclusions>
       </dependency>
 
       <!-- commons -->
@@ -3029,17 +3067,6 @@
         <groupId>org.mvel</groupId>
         <artifactId>mvel2</artifactId>
         <version>2.5.2.Final</version>
-      </dependency>
-
-      <dependency>
-        <groupId>javax.script</groupId>
-        <artifactId>groovy-engine</artifactId>
-        <version>1.0</version>
-      </dependency>
-      <dependency>
-        <groupId>com.sun.activation</groupId>
-        <artifactId>javax.activation</artifactId>
-        <version>1.2.0</version>
       </dependency>
 
       <!-- MockServer -->
@@ -3899,17 +3926,10 @@
           </exclusion>
         </exclusions>
       </dependency>
-
       <dependency>
-        <groupId>javax.xml.ws</groupId>
-        <artifactId>jaxws-api</artifactId>
-        <version>2.3.1</version>
-        <exclusions>
-          <exclusion>
-            <groupId>javax.xml.bind</groupId>
-            <artifactId>jaxb-api</artifactId>
-          </exclusion>
-        </exclusions>
+        <groupId>org.codehaus.woodstox</groupId>
+        <artifactId>stax2-api</artifactId>
+        <version>4.2.2</version>
       </dependency>
 
       <dependency>
@@ -4053,11 +4073,6 @@
         <artifactId>pax-url-aether</artifactId>
         <version>1.6.0</version>
         <scope>test</scope>
-      </dependency>
-      <dependency>
-        <groupId>javax.inject</groupId>
-        <artifactId>javax.inject</artifactId>
-        <version>1</version>
       </dependency>
       <dependency>
         <groupId>com.thetransactioncompany</groupId>
@@ -4980,28 +4995,20 @@
                 <message>org.bouncycastle:bcmail-jdk15 must not be used, use org.bouncycastle:bcmail-jdk15on instead</message>
               </bannedDependencies>
               <bannedDependencies>
+                <!-- use official javax.servlet:javax.servlet-api instead -->
                 <excludes>
-                  <exclude>org.apache.tomcat:tomcat-servlet-api</exclude> <!-- use official javax.servlet:javax.servlet-api instead -->
+                  <exclude>org.apache.tomcat:tomcat-servlet-api</exclude>
+                  <exclude>org.mortbay.jetty:servlet-api-2.5</exclude>
+                  <exclude>org.mortbay.jetty:servlet-api</exclude>
+                  <exclude>javax.servet:servlet-api</exclude>
                 </excludes>
-                <message>org.apache.tomcat:tomcat-servlet-api must not be used, use javax.servlet:javax.servlet-api instead</message>
+                <message>use javax.servlet:javax.servlet-api instead</message>
               </bannedDependencies>
               <bannedDependencies>
                 <excludes>
-                  <exclude>org.mortbay.jetty:servlet-api-2.5</exclude> <!-- use official javax.servlet:javax.servlet-api instead -->
+                  <exclude>javax.annotations:jsr250-api</exclude>
                 </excludes>
-                <message>org.mortbay.jetty:servlet-api-2.5 must not be used, use javax.servlet:javax.servlet-api instead</message>
-              </bannedDependencies>
-              <bannedDependencies>
-                <excludes>
-                  <exclude>org.mortbay.jetty:servlet-api</exclude> <!-- use official javax.servlet:javax.servlet-api instead -->
-                </excludes>
-                <message>org.mortbay.jetty:servlet-api must not be used, use javax.servlet:javax.servlet-api instead</message>
-              </bannedDependencies>
-              <bannedDependencies>
-                <excludes>
-                  <exclude>javax.servet:servlet-api</exclude> <!-- use official javax.servlet:javax.servlet-api instead -->
-                </excludes>
-                <message>javax.servlet:servlet-api must not be used, use javax.servlet:javax.servlet-api instead</message>
+                <message>use javax.annotation:javax.annotation-api instead</message>
               </bannedDependencies>
               <bannedDependencies>
                 <excludes>
