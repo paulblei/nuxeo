@@ -270,7 +270,7 @@ public class ComputationRunner implements Runnable, RebalanceListener {
                 log.debug(msg);
             }
             return ReturnCode.INTERRUPTED;
-        } catch (Exception e) {
+        } catch (Throwable e) {
             if (e instanceof ClosedByInterruptException || Thread.interrupted()) {
                 // clearing the interrupt flag is wanted as closeTailer method needs a non-interrupted thread
                 // ClosedByInterruptException can happen when pool is shutdownNow
