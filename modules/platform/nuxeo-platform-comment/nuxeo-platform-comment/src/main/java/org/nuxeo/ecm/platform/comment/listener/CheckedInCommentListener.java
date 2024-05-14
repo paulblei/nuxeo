@@ -30,6 +30,7 @@ import java.util.Arrays;
 import org.nuxeo.ecm.core.api.CoreSession;
 import org.nuxeo.ecm.core.api.DocumentModel;
 import org.nuxeo.ecm.core.api.DocumentModelList;
+import org.nuxeo.ecm.core.api.DocumentNotFoundException;
 import org.nuxeo.ecm.core.api.DocumentRef;
 import org.nuxeo.ecm.core.event.Event;
 import org.nuxeo.ecm.core.event.EventBundle;
@@ -62,9 +63,13 @@ public class CheckedInCommentListener implements PostCommitFilteringEventListene
         EventContext ctx = event.getContext();
         CoreSession session = ctx.getCoreSession();
         DocumentRef versionRef = (DocumentRef) ctx.getProperty("checkedInVersionRef");
-        if (versionRef != null && session.hasChild(versionRef, COMMENTS_DIRECTORY)) {
-            DocumentModel comments = session.getChild(versionRef, COMMENTS_DIRECTORY);
-            updateCommentProperties(session, comments.getId(), versionRef.reference().toString());
+        try {
+            if (versionRef != null && session.hasChild(versionRef, COMMENTS_DIRECTORY)) {
+                DocumentModel comments = session.getChild(versionRef, COMMENTS_DIRECTORY);
+                updateCommentProperties(session, comments.getId(), versionRef.reference().toString());
+            }
+        } catch (DocumentNotFoundException e) {
+            // version not found
         }
     }
 
