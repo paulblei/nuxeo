@@ -51,6 +51,7 @@ public class ComputeDigestWork extends AbstractWork {
 
     @Override
     public void work() {
+        ComputeDigestHelper.newTransaction();
         try {
             new ComputeDigestHelper(blobProviderId, key).computeAndReplaceDigest();
         } catch (NuxeoException e) {

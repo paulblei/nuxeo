@@ -46,6 +46,10 @@ public class ComputeDigestHelper {
 
     private static final Logger log = LogManager.getLogger(ComputeDigestHelper.class);
 
+    protected static final String DIGEST_TX_TIMEOUT_PROPERTY = "nuxeo.core.blobstore.digestAsync.transaction.timeout.seconds";
+
+    protected static final int DEFAULT_TX_TIMEOUT_SECONDS = 8 * 3600;
+
     public final String blobProviderId;
 
     public final String key;
@@ -169,4 +173,28 @@ public class ComputeDigestHelper {
         session.save();
     }
 
+    /**
+     * Commits and starts a new transaction with a custom timeout.
+     *
+     * @since 2023.12
+     */
+    public static void newTransaction() {
+        int timeout = getTransactionTimeout();
+        if (TransactionHelper.isTransactionActiveOrMarkedRollback()) {
+            TransactionHelper.commitOrRollbackTransaction();
+        }
+        log.debug("Commit and start transaction with timeout {}s", timeout);
+        TransactionHelper.startTransaction(timeout);
+    }
+
+    /**
+     * Gets the transaction timeout in second.
+     *
+     * @since 2023.12
+     */
+    public static int getTransactionTimeout() {
+        String maxDurationStr = Framework.getProperty(DIGEST_TX_TIMEOUT_PROPERTY,
+                String.valueOf(DEFAULT_TX_TIMEOUT_SECONDS));
+        return Integer.parseInt(maxDurationStr);
+    }
 }
