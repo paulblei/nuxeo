@@ -27,7 +27,6 @@ import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
 import org.nuxeo.runtime.test.runner.RunnerFeature;
-import org.nuxeo.runtime.test.runner.web.WebDriverFeature;
 
 @Deploy("org.nuxeo.ecm.platform.login")
 @Deploy("org.nuxeo.ecm.webengine.jaxrs")
@@ -36,8 +35,7 @@ import org.nuxeo.runtime.test.runner.web.WebDriverFeature;
 @Deploy("org.nuxeo.ecm.platform.test:test-usermanagerimpl/userservice-config.xml")
 @Deploy("org.nuxeo.ecm.webengine.test:login-anonymous-config.xml")
 @Deploy("org.nuxeo.ecm.webengine.test:runtimeserver-contrib.xml")
-@Features({ PlatformFeature.class, WebDriverFeature.class, ServletContainerTransactionalFeature.class,
-        WebEngineFeatureCore.class })
+@Features({ PlatformFeature.class, ServletContainerTransactionalFeature.class, WebEngineFeatureCore.class })
 public class WebEngineFeature implements RunnerFeature {
 
     protected URL config;
