@@ -574,7 +574,7 @@ public class DocumentBlobManagerComponent extends DefaultComponent implements Do
             blobInfo.key = key;
             ManagedBlob managedBlob = (ManagedBlob) blobProvider.readBlob(blobInfo);
             EventService es = Framework.getService(EventService.class);
-            log.debug("Deleting blob: {} from provider: {}", key, providerId);
+            log.info("Blob: {} from repository: {}, provider: {} is deleted", key, repositoryName, providerId);
             String k = colon > 0 ? key.substring(colon + 1) : key;
             BlobStore blobStore = blobStoreProvider.store;
             blobStore.deleteBlob(k);

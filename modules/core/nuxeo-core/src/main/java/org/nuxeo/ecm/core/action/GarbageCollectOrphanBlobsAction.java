@@ -119,9 +119,16 @@ public class GarbageCollectOrphanBlobsAction implements StreamProcessorTopology 
                     } else {
                         delta.incrementSkipCount();
                     }
-                    if (dryRun && deleted && ++sampleCounter % sampleModulo == 0) {
-                        log.warn("dryRun sample: GC would have deleted blob: {} of size {}.", () -> key,
-                                () -> FileUtils.byteCountToDisplaySize(size));
+                    if (++sampleCounter % sampleModulo == 0) {
+                        if (dryRun) {
+                            log.warn("Sample: dryRun GC {} blob: {} of size {}.",
+                                    () -> deleted ? "would have deleted" : "has kept", () -> key,
+                                    () -> FileUtils.byteCountToDisplaySize(size));
+                        } else {
+                            log.warn("Sample: GC has {} blob: {} of size {}.",
+                                    () -> deleted ? "deleted" : "kept", () -> key,
+                                    () -> FileUtils.byteCountToDisplaySize(size));
+                        }
                     }
                     log.trace("CommandId: {} Blob: {} of size: {} from repository: {} deleted: {} dryRun: {}",
                             () -> getCurrentCommand().getId(), () -> key, () -> FileUtils.byteCountToDisplaySize(size),
