@@ -80,7 +80,7 @@ public abstract class AbstractAuditStorageTest {
             List<String> jsonEntries = new ArrayList<>();
             for (int i = 1; i <= NUM_OF_EVENTS; i++) {
                 ObjectNode logEntryJson = mapper.createObjectNode();
-                logEntryJson.put(LOG_ID, 1000L + i);
+                logEntryJson.put(LOG_ID, 1_000_000L + i);
                 logEntryJson.put(LOG_EVENT_ID, ID_FOR_AUDIT_STORAGE_TESTS);
                 logEntryJson.put(LOG_DOC_PATH, i % 2 == 0 ? "/is/even" : "/is/odd");
                 jsonEntries.add(mapper.writeValueAsString(logEntryJson));
