@@ -35,7 +35,9 @@ import com.sun.jersey.api.client.WebResource;
 
 /**
  * @since 10.1
+ * @deprecated since 2023.13, use {@link org.nuxeo.http.test.HttpClientTestRule} instead
  */
+@Deprecated(since = "2023.13", forRemoval = true)
 public class HttpClientTestRule implements TestRule {
 
     public static final String ADMINISTRATOR = "Administrator";

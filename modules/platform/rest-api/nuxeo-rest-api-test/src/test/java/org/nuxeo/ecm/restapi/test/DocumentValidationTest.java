@@ -18,31 +18,33 @@
  */
 package org.nuxeo.ecm.restapi.test;
 
+import static org.apache.http.HttpStatus.SC_CREATED;
+import static org.apache.http.HttpStatus.SC_OK;
+import static org.apache.http.HttpStatus.SC_UNPROCESSABLE_ENTITY;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.nuxeo.ecm.core.io.registry.MarshallingConstants.EMBED_PROPERTIES;
 import static org.nuxeo.ecm.core.io.registry.MarshallingConstants.WILDCARD_VALUE;
 
-import java.io.IOException;
-
 import javax.inject.Inject;
-import javax.ws.rs.core.Response;
 
-import org.apache.http.HttpStatus;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.nuxeo.ecm.core.api.CoreSession;
 import org.nuxeo.ecm.core.api.DocumentModel;
 import org.nuxeo.ecm.core.api.PathRef;
 import org.nuxeo.ecm.core.test.annotations.Granularity;
 import org.nuxeo.ecm.core.test.annotations.RepositoryConfig;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.HttpStatusCodeHandler;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
 import org.nuxeo.runtime.test.runner.TransactionalFeature;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.sun.jersey.api.client.ClientResponse;
 
 /**
  * Test the CRUD rest API
@@ -53,10 +55,20 @@ import com.sun.jersey.api.client.ClientResponse;
 @Features({ RestServerFeature.class })
 @RepositoryConfig(cleanup = Granularity.METHOD, init = RestServerInit.class)
 @Deploy("org.nuxeo.ecm.platform.restapi.test.test:test-validation-contrib.xml")
-public class DocumentValidationTest extends BaseTest {
+public class DocumentValidationTest {
+
+    @Inject
+    protected CoreSession session;
+
+    @Inject
+    protected RestServerFeature restServerFeature;
 
     @Inject
     protected TransactionalFeature txFeature;
+
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.defaultJsonClient(
+            () -> restServerFeature.getRestApiUrl());
 
     private static final String VALID_DOC = createDocumentJSON("\"Bill\"", "\"Boquet\"");
 
@@ -92,80 +104,73 @@ public class DocumentValidationTest extends BaseTest {
     @Test
     public void testCreateValidDocumentEndpointId() {
         DocumentModel root = session.getDocument(new PathRef("/"));
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "id/" + root.getId(), VALID_DOC)) {
-            assertEquals(Response.Status.CREATED.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildPostRequest("/id/" + root.getId())
+                  .entity(VALID_DOC)
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_CREATED, status.intValue()));
     }
 
     @Test
     public void testCreateValidDocumentEndpointPath() {
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "path/", VALID_DOC)) {
-            assertEquals(Response.Status.CREATED.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildPostRequest("/path/")
+                  .entity(VALID_DOC)
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_CREATED, status.intValue()));
     }
 
     @Test
-    public void testCreateDocumentWithSegmentLimitViolationInName() throws IOException {
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "path/",
-                INVALID_DOC_NAME_SEGMENT_LIMIT_EXCEEDED)) {
-            // create a doc whose name is too long
-            assertEquals(Response.Status.CREATED.getStatusCode(), response.getStatus());
+    public void testCreateDocumentWithSegmentLimitViolationInName() {
+        // create a doc whose name is too long
+        httpClient.buildPostRequest("/path/")
+                  .entity(INVALID_DOC_NAME_SEGMENT_LIMIT_EXCEEDED)
+                  .executeAndConsume(new JsonNodeHandler(SC_CREATED),
+                          // check the path in the response
+                          node -> assertEquals("/123456789_123456789_1234", node.get("path").asText()));
 
-            // check the path in the response
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals("/123456789_123456789_1234", node.get("path").asText());
+        // refresh the session
+        txFeature.nextTransaction();
 
-            // refresh the session
-            txFeature.nextTransaction();
-
-            // the created doc's name has been truncated to match the path segment limit
-            assertTrue(session.exists(new PathRef("/123456789_123456789_1234")));
-        }
+        // the created doc's name has been truncated to match the path segment limit
+        assertTrue(session.exists(new PathRef("/123456789_123456789_1234")));
     }
 
     @Test
-    public void testCreateDocumentWithViolationEndpointId() throws Exception {
+    public void testCreateDocumentWithViolationEndpointId() {
         DocumentModel root = session.getDocument(new PathRef("/"));
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "id/" + root.getId(), INVALID_DOC)) {
-            assertEquals(HttpStatus.SC_UNPROCESSABLE_ENTITY, response.getStatus());
-            checkResponseHasErrors(response);
-        }
+        httpClient.buildPostRequest("/id/" + root.getId())
+                  .entity(INVALID_DOC)
+                  .executeAndConsume(new JsonNodeHandler(SC_UNPROCESSABLE_ENTITY), this::checkResponseHasErrors);
     }
 
     @Test
-    public void testCreateDocumentWithViolationEndpointPath() throws Exception {
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "path/", INVALID_DOC)) {
-            assertEquals(HttpStatus.SC_UNPROCESSABLE_ENTITY, response.getStatus());
-            checkResponseHasErrors(response);
-        }
+    public void testCreateDocumentWithViolationEndpointPath() {
+        httpClient.buildPostRequest("/path/")
+                  .entity(INVALID_DOC)
+                  .executeAndConsume(new JsonNodeHandler(SC_UNPROCESSABLE_ENTITY), this::checkResponseHasErrors);
     }
 
     /**
      * NXP-23267
      */
     @Test
-    public void testCreateDocumentWithViolationNotDirtyEndpointId() throws Exception {
+    public void testCreateDocumentWithViolationNotDirtyEndpointId() {
         DocumentModel root = session.getDocument(new PathRef("/"));
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "id/" + root.getId(),
-                INVALID_DOC_NOT_DIRTY)) {
-            assertEquals(HttpStatus.SC_UNPROCESSABLE_ENTITY, response.getStatus());
-            checkResponseHasNotDirtyError(response);
-        }
+        httpClient.buildPostRequest("/id/" + root.getId())
+                  .entity(INVALID_DOC_NOT_DIRTY)
+                  .executeAndConsume(new JsonNodeHandler(SC_UNPROCESSABLE_ENTITY), this::checkResponseHasNotDirtyError);
     }
 
     /**
      * NXP-23267
      */
     @Test
-    public void testCreateDocumentWithViolationNotDirtyEndpointPath() throws Exception {
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "path/", INVALID_DOC_NOT_DIRTY)) {
-            assertEquals(HttpStatus.SC_UNPROCESSABLE_ENTITY, response.getStatus());
-            checkResponseHasNotDirtyError(response);
-        }
+    public void testCreateDocumentWithViolationNotDirtyEndpointPath() {
+        httpClient.buildPostRequest("/path/")
+                  .entity(INVALID_DOC_NOT_DIRTY)
+                  .executeAndConsume(new JsonNodeHandler(SC_UNPROCESSABLE_ENTITY), this::checkResponseHasNotDirtyError);
     }
 
-    protected void checkResponseHasNotDirtyError(CloseableClientResponse response) throws IOException {
-        JsonNode node = mapper.readTree(response.getEntityInputStream());
+    protected void checkResponseHasNotDirtyError(JsonNode node) {
         assertTrue(node.get("has_error").asBoolean());
         assertEquals(1, node.get("number").asInt());
         JsonNode violations = node.get("violations");
@@ -178,10 +183,10 @@ public class DocumentValidationTest extends BaseTest {
         DocumentModel doc = session.createDocumentModel("/", "doc1", "ValidatedDocument");
         doc.setPropertyValue("vs:description", "Mandatory description");
         doc = session.createDocument(doc);
-        fetchInvalidations();
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "id/" + doc.getId(), VALID_DOC)) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-        }
+        txFeature.nextTransaction();
+        httpClient.buildPutRequest("/id/" + doc.getId())
+                  .entity(VALID_DOC)
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(SC_OK, status.intValue()));
     }
 
     @Test
@@ -189,72 +194,65 @@ public class DocumentValidationTest extends BaseTest {
         DocumentModel doc = session.createDocumentModel("/", "doc1", "ValidatedDocument");
         doc.setPropertyValue("vs:description", "Mandatory description");
         doc = session.createDocument(doc);
-        fetchInvalidations();
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "path/doc1", VALID_DOC)) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-        }
+        txFeature.nextTransaction();
+        httpClient.buildPutRequest("/path" + doc.getPathAsString())
+                  .entity(VALID_DOC)
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(SC_OK, status.intValue()));
     }
 
     @Test
-    public void testSaveDocumentWithViolationEndpointId() throws Exception {
+    public void testSaveDocumentWithViolationEndpointId() {
         DocumentModel doc = session.createDocumentModel("/", "doc1", "ValidatedDocument");
         doc.setPropertyValue("vs:description", "Mandatory description");
         doc = session.createDocument(doc);
-        fetchInvalidations();
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "id/" + doc.getId(), INVALID_DOC)) {
-            assertEquals(HttpStatus.SC_UNPROCESSABLE_ENTITY, response.getStatus());
-            checkResponseHasErrors(response);
-        }
+        txFeature.nextTransaction();
+        httpClient.buildPutRequest("/id/" + doc.getId())
+                  .entity(INVALID_DOC)
+                  .executeAndConsume(new JsonNodeHandler(SC_UNPROCESSABLE_ENTITY), this::checkResponseHasErrors);
     }
 
     @Test
-    public void testSaveDocumentWithViolationEndpointPath() throws Exception {
+    public void testSaveDocumentWithViolationEndpointPath() {
         DocumentModel doc = session.createDocumentModel("/", "doc1", "ValidatedDocument");
         doc.setPropertyValue("vs:description", "Mandatory description");
         doc = session.createDocument(doc);
-        fetchInvalidations();
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "path/doc1", INVALID_DOC)) {
-            assertEquals(HttpStatus.SC_UNPROCESSABLE_ENTITY, response.getStatus());
-            checkResponseHasErrors(response);
-        }
+        txFeature.nextTransaction();
+        httpClient.buildPutRequest("/path" + doc.getPathAsString())
+                  .entity(INVALID_DOC)
+                  .executeAndConsume(new JsonNodeHandler(SC_UNPROCESSABLE_ENTITY), this::checkResponseHasErrors);
     }
 
     @Test
-    public void testPropertyLoading() throws Exception {
+    public void testPropertyLoading() {
         DocumentModel doc = session.createDocumentModel("/", "doc1", "ValidatedDocument");
         doc.setPropertyValue("vs:description", "Mandatory description");
         doc.getProperty("userRefs").addValue("user:Administrator");
         doc = session.createDocument(doc);
-        fetchInvalidations();
-        try (CloseableClientResponse response = CloseableClientResponse.of(
-                service.path("path/doc1")
-                       .queryParam("embed", "*")
-                       .header(EMBED_PROPERTIES, WILDCARD_VALUE)
-                       .get(ClientResponse.class))) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-        }
+        txFeature.nextTransaction();
+        httpClient.buildGetRequest("/path" + doc.getPathAsString())
+                  .addQueryParameter("embed", "*")
+                  .addHeader(EMBED_PROPERTIES, WILDCARD_VALUE)
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(SC_OK, status.intValue()));
     }
 
     /**
      * @since 11.1
      */
     @Test
-    public void testGlobalValidationMessage() throws IOException {
+    public void testGlobalValidationMessage() {
         DocumentModel root = session.getDocument(new PathRef("/"));
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "id/" + root.getId(),
-                createDocumentJSON("\"Bill\"", "\"Bill\""))) {
-            assertEquals(HttpStatus.SC_UNPROCESSABLE_ENTITY, response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertTrue(node.get("has_error").asBoolean());
-            assertEquals(1, node.get("number").asInt());
-            JsonNode violations = node.get("violations");
-            JsonNode violation1 = violations.elements().next();
-            assertEquals("lastname.cannot.be.equals.to.firstname", violation1.get("messageKey").textValue());
-        }
+        httpClient.buildPostRequest("/id/" + root.getId())
+                  .entity(createDocumentJSON("\"Bill\"", "\"Bill\""))
+                  .executeAndConsume(new JsonNodeHandler(SC_UNPROCESSABLE_ENTITY), node -> {
+                      assertTrue(node.get("has_error").asBoolean());
+                      assertEquals(1, node.get("number").asInt());
+                      JsonNode violations = node.get("violations");
+                      JsonNode violation1 = violations.elements().next();
+                      assertEquals("lastname.cannot.be.equals.to.firstname", violation1.get("messageKey").textValue());
+                  });
     }
 
-    private void checkResponseHasErrors(ClientResponse response) throws IOException {
-        JsonNode node = mapper.readTree(response.getEntityInputStream());
+    private void checkResponseHasErrors(JsonNode node) {
         assertTrue(node.get("has_error").asBoolean());
         assertEquals(2, node.get("number").asInt());
         JsonNode violations = node.get("violations");

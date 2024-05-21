@@ -18,28 +18,29 @@
  */
 package org.nuxeo.ecm.restapi.server.jaxrs.drive;
 
+import static org.apache.http.HttpStatus.SC_NOT_FOUND;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.Serializable;
 import java.net.URISyntaxException;
-import java.util.Map;
+
+import javax.inject.Inject;
 
 import org.apache.commons.io.FileUtils;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.nuxeo.common.Environment;
 import org.nuxeo.ecm.core.transientstore.keyvalueblob.KeyValueBlobTransientStoreFeature;
-import org.nuxeo.ecm.restapi.test.BaseTest;
 import org.nuxeo.ecm.restapi.test.RestServerFeature;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.HttpStatusCodeHandler;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * Tests the {@link NuxeoDriveObject}.
@@ -49,30 +50,30 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @RunWith(FeaturesRunner.class)
 @Features({ KeyValueBlobTransientStoreFeature.class, RestServerFeature.class })
 @Deploy("org.nuxeo.drive.rest.api")
-public class NuxeoDriveObjectTest extends BaseTest {
+public class NuxeoDriveObjectTest {
+
+    @Inject
+    protected RestServerFeature restServerFeature;
+
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.defaultClient(
+            () -> restServerFeature.getRestApiUrl());
 
     @Test
     public void testGetConfiguration() throws URISyntaxException, IOException {
-
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "/drive/configuration")) {
-            assertEquals(404, response.getStatus());
-        }
+        httpClient.buildGetRequest("/drive/configuration")
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_NOT_FOUND, status.intValue()));
 
         File testConfigurationFile = new File(
                 Thread.currentThread().getContextClassLoader().getResource("nuxeo-drive-config.json").toURI());
         File serverConfigurationFile = new File(Environment.getDefault().getConfig(), "nuxeo-drive-config.json");
         FileUtils.copyFile(testConfigurationFile, serverConfigurationFile);
 
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "/drive/configuration")) {
-            assertEquals(200, response.getStatus());
-            assertEquals("application/json", response.getType().toString());
-            String json = response.getEntity(String.class);
-            ObjectMapper mapper = new ObjectMapper();
-            @SuppressWarnings("unchecked")
-            Map<String, Serializable> options = mapper.readValue(json, Map.class);
+        httpClient.buildGetRequest("/drive/configuration").executeAndConsume(new JsonNodeHandler(), options -> {
             assertNotNull(options);
             assertEquals(10, options.size());
-            assertEquals(30, options.get("delay"));
-        }
+            assertEquals(30, options.get("delay").intValue());
+        });
     }
 }

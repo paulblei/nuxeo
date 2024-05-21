@@ -34,24 +34,27 @@ import java.nio.charset.StandardCharsets;
 
 import javax.inject.Inject;
 
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.nuxeo.common.utils.FileUtils;
 import org.nuxeo.ecm.core.api.Blob;
 import org.nuxeo.ecm.core.api.Blobs;
+import org.nuxeo.ecm.core.api.CoreSession;
 import org.nuxeo.ecm.core.api.DocumentModel;
 import org.nuxeo.ecm.core.test.annotations.Granularity;
 import org.nuxeo.ecm.core.test.annotations.RepositoryConfig;
 import org.nuxeo.ecm.platform.audit.AuditFeature;
 import org.nuxeo.ecm.platform.thumbnail.ThumbnailConstants;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.HttpStatusCodeHandler;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
+import org.nuxeo.http.test.handler.StringHandler;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
 import org.nuxeo.runtime.test.runner.TransactionalFeature;
 import org.nuxeo.runtime.transaction.TransactionHelper;
-
-import com.fasterxml.jackson.databind.JsonNode;
 
 /**
  * @since 7.2
@@ -66,10 +69,20 @@ import com.fasterxml.jackson.databind.JsonNode;
 @Deploy("org.nuxeo.ecm.platform.restapi.test:renditions-test-contrib.xml")
 @Deploy("org.nuxeo.ecm.platform.convert")
 @Deploy("org.nuxeo.ecm.platform.thumbnail")
-public class RenditionTest extends BaseTest {
+public class RenditionTest {
+
+    @Inject
+    protected CoreSession session;
+
+    @Inject
+    protected RestServerFeature restServerFeature;
 
     @Inject
     protected TransactionalFeature txFeature;
+
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.defaultClient(
+            () -> restServerFeature.getRestApiUrl());
 
     @Test
     public void shouldRetrieveTheRendition() {
@@ -78,11 +91,8 @@ public class RenditionTest extends BaseTest {
         TransactionHelper.commitOrRollbackTransaction();
         TransactionHelper.startTransaction();
 
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                "path" + doc.getPathAsString() + "/@rendition/dummyRendition")) {
-            assertEquals(SC_OK, response.getStatus());
-            assertEquals("adoc", response.getEntity(String.class));
-        }
+        httpClient.buildGetRequest("/path" + doc.getPathAsString() + "/@rendition/dummyRendition")
+                  .executeAndConsume(new StringHandler(), body -> assertEquals("adoc", body));
     }
 
     @Test
@@ -92,11 +102,8 @@ public class RenditionTest extends BaseTest {
         TransactionHelper.commitOrRollbackTransaction();
         TransactionHelper.startTransaction();
 
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                "path" + doc.getPathAsString() + "/@rendition/dummyRendition")) {
-            assertEquals(SC_OK, response.getStatus());
-            assertEquals("afolder", response.getEntity(String.class));
-        }
+        httpClient.buildGetRequest("/path" + doc.getPathAsString() + "/@rendition/dummyRendition")
+                  .executeAndConsume(new StringHandler(), body -> assertEquals("afolder", body));
     }
 
     @Test
@@ -106,10 +113,9 @@ public class RenditionTest extends BaseTest {
         TransactionHelper.commitOrRollbackTransaction();
         TransactionHelper.startTransaction();
         // thumbnail rendition for a folder is null inside unit test
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                "path" + doc.getPathAsString() + "/@rendition/thumbnail")) {
-            assertEquals(SC_NOT_FOUND, response.getStatus());
-        }
+        httpClient.buildGetRequest("/path" + doc.getPathAsString() + "/@rendition/thumbnail")
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_NOT_FOUND, status.intValue()));
     }
 
     // NXP-30483
@@ -124,20 +130,17 @@ public class RenditionTest extends BaseTest {
         TransactionHelper.commitOrRollbackTransaction();
         TransactionHelper.startTransaction();
 
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                "path" + doc.getPathAsString() + "/@rendition/pdf")) {
-            assertEquals(SC_OK, response.getStatus());
-        }
+        httpClient.buildGetRequest("/path" + doc.getPathAsString() + "/@rendition/pdf")
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(SC_OK, status.intValue()));
 
         // NXP-31383
         txFeature.nextTransaction();
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                "path" + doc.getPathAsString() + "/@audit")) {
-            assertEquals(SC_OK, response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals("\"pdf\"", node.get("entries").get(0).get("extended").get(EXTENDED_INFO_RENDITION).toString());
-            assertNull(node.get("entries").get(0).get("extended").get(REQUEST_ATTR_DOWNLOAD_RENDITION));
-        }
+        httpClient.buildGetRequest("/path" + doc.getPathAsString() + "/@audit")
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      assertEquals("\"pdf\"",
+                              node.get("entries").get(0).get("extended").get(EXTENDED_INFO_RENDITION).toString());
+                      assertNull(node.get("entries").get(0).get("extended").get(REQUEST_ATTR_DOWNLOAD_RENDITION));
+                  });
     }
 
     @Test
@@ -147,10 +150,10 @@ public class RenditionTest extends BaseTest {
         TransactionHelper.commitOrRollbackTransaction();
         TransactionHelper.startTransaction();
 
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                "path" + doc.getPathAsString() + "/@rendition/unexistingRendition")) {
-            assertEquals(SC_INTERNAL_SERVER_ERROR, response.getStatus()); // should be 404?
-        }
+        httpClient.buildGetRequest("/path" + doc.getPathAsString() + "/@rendition/unexistingRendition")
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          // should be 404?
+                          status -> assertEquals(SC_INTERNAL_SERVER_ERROR, status.intValue()));
     }
 
     // NXP-31166
@@ -169,16 +172,12 @@ public class RenditionTest extends BaseTest {
         TransactionHelper.commitOrRollbackTransaction();
         TransactionHelper.startTransaction();
 
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                "path/downloadable/reachable/@rendition/dummyRendition")) {
-            assertEquals(SC_OK, response.getStatus());
-            assertEquals("reachable", response.getEntity(String.class));
-        }
+        httpClient.buildGetRequest("/path/downloadable/reachable/@rendition/dummyRendition")
+                  .executeAndConsume(new StringHandler(), body -> assertEquals("reachable", body));
 
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                "path/unreachable/@rendition/dummyRendition")) {
-            assertEquals(SC_FORBIDDEN, response.getStatus());
-        }
+        httpClient.buildGetRequest("/path/unreachable/@rendition/dummyRendition")
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_FORBIDDEN, status.intValue()));
     }
 
 }

@@ -18,6 +18,7 @@
  */
 package org.nuxeo.ecm.restapi.server.jaxrs.search.test;
 
+import static org.apache.http.HttpStatus.SC_BAD_REQUEST;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.nuxeo.ecm.core.schema.types.PrimitiveType.PRIMITIVE_TYPE_STRICT_VALIDATION_PROPERTY;
@@ -26,31 +27,33 @@ import java.io.IOException;
 import java.util.List;
 
 import javax.inject.Inject;
-import javax.ws.rs.core.Response;
 
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.nuxeo.ecm.core.api.CoreSession;
 import org.nuxeo.ecm.core.api.DocumentModel;
 import org.nuxeo.ecm.core.schema.XSDTypes;
 import org.nuxeo.ecm.core.schema.types.primitives.DoubleType;
 import org.nuxeo.ecm.core.schema.types.primitives.LongType;
-import org.nuxeo.ecm.restapi.test.BaseTest;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.ecm.restapi.test.JsonNodeHelper;
+import org.nuxeo.ecm.restapi.test.RestServerFeature;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
 import org.nuxeo.runtime.test.runner.TransactionalFeature;
 import org.nuxeo.runtime.test.runner.WithFrameworkProperty;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.sun.jersey.core.util.MultivaluedMapImpl;
 
 /**
  * @since 2023.7
  */
 @RunWith(FeaturesRunner.class)
 @Features(SearchRestFeature.class)
-public class SearchPrimitiveTypePredicatesTest extends BaseTest {
+public class SearchPrimitiveTypePredicatesTest {
 
     protected static final String PP_TEST_PRIMITIVE_TYPE_PREDICATES = "test_primitive_type_predicates";
 
@@ -58,7 +61,17 @@ public class SearchPrimitiveTypePredicatesTest extends BaseTest {
             PP_TEST_PRIMITIVE_TYPE_PREDICATES);
 
     @Inject
+    protected CoreSession session;
+
+    @Inject
+    protected RestServerFeature restServerFeature;
+
+    @Inject
     protected TransactionalFeature txFeature;
+
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.defaultClient(
+            () -> restServerFeature.getRestApiUrl());
 
     // doc with primitive type fields set to 0 or 0.0
     protected DocumentModel doc0;
@@ -90,7 +103,7 @@ public class SearchPrimitiveTypePredicatesTest extends BaseTest {
      * as it is a primitive type commonly used.
      */
     @Test
-    public void testIntegerType() throws IOException {
+    public void testIntegerType() {
         testPrimitiveType("integerField", false);
     }
 
@@ -101,7 +114,7 @@ public class SearchPrimitiveTypePredicatesTest extends BaseTest {
     }
 
     @Test
-    public void testLongType() throws IOException {
+    public void testLongType() {
         testPrimitiveType("longField", false);
     }
 
@@ -116,7 +129,7 @@ public class SearchPrimitiveTypePredicatesTest extends BaseTest {
      * as it is a primitive type commonly used.
      */
     @Test
-    public void testFloatType() throws IOException {
+    public void testFloatType() {
         testPrimitiveType("floatField", true);
     }
 
@@ -127,7 +140,7 @@ public class SearchPrimitiveTypePredicatesTest extends BaseTest {
     }
 
     @Test
-    public void testDoubleType() throws IOException {
+    public void testDoubleType() {
         testPrimitiveType("doubleField", true);
     }
 
@@ -137,73 +150,61 @@ public class SearchPrimitiveTypePredicatesTest extends BaseTest {
         testPrimitiveTypeStrictValidation("doubleField");
     }
 
-    protected void testPrimitiveType(String predicateFieldName, boolean testFloatNotation) throws IOException {
+    protected void testPrimitiveType(String predicateFieldName, boolean testFloatNotation) {
         // match document with primitive type field value = 1
-        var queryParams = new MultivaluedMapImpl();
-        queryParams.add(predicateFieldName, "1");
-        try (CloseableClientResponse response = getResponse(RequestType.GET, PP_EXECUTE_PATH, queryParams)) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            List<JsonNode> entries = getEntries(node);
-            assertEquals(1, entries.size());
-            JsonNode entry = entries.get(0);
-            assertEquals(doc1.getId(), entry.get("uid").asText());
-        }
+        httpClient.buildGetRequest(PP_EXECUTE_PATH)
+                  .addQueryParameter(predicateFieldName, "1")
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      List<JsonNode> entries = JsonNodeHelper.getEntries(node);
+                      assertEquals(1, entries.size());
+                      JsonNode entry = entries.get(0);
+                      assertEquals(doc1.getId(), entry.get("uid").asText());
+                  });
 
         // match no documents with primitive type field value = 2
-        queryParams.putSingle(predicateFieldName, "2");
-        try (CloseableClientResponse response = getResponse(RequestType.GET, PP_EXECUTE_PATH, queryParams)) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            List<JsonNode> entries = getEntries(node);
-            assertTrue(entries.isEmpty());
-        }
+        httpClient.buildGetRequest(PP_EXECUTE_PATH)
+                  .addQueryParameter(predicateFieldName, "2")
+                  .executeAndConsume(new JsonNodeHandler(),
+                          node -> assertTrue(JsonNodeHelper.getEntries(node).isEmpty()));
 
         if (testFloatNotation) {
             // match document with primitive type field value = 1.0
-            queryParams.putSingle(predicateFieldName, "1.0");
-            try (CloseableClientResponse response = getResponse(RequestType.GET, PP_EXECUTE_PATH, queryParams)) {
-                assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-                JsonNode node = mapper.readTree(response.getEntityInputStream());
-                List<JsonNode> entries = getEntries(node);
-                assertEquals(1, entries.size());
-                JsonNode entry = entries.get(0);
-                assertEquals(doc1.getId(), entry.get("uid").asText());
-            }
+            httpClient.buildGetRequest(PP_EXECUTE_PATH)
+                      .addQueryParameter(predicateFieldName, "1.0")
+                      .executeAndConsume(new JsonNodeHandler(), node -> {
+                          List<JsonNode> entries = JsonNodeHelper.getEntries(node);
+                          assertEquals(1, entries.size());
+                          JsonNode entry = entries.get(0);
+                          assertEquals(doc1.getId(), entry.get("uid").asText());
+                      });
 
             // match no documents with primitive type field value = 2.0
-            queryParams.putSingle(predicateFieldName, "2.0");
-            try (CloseableClientResponse response = getResponse(RequestType.GET, PP_EXECUTE_PATH, queryParams)) {
-                assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-                JsonNode node = mapper.readTree(response.getEntityInputStream());
-                List<JsonNode> entries = getEntries(node);
-                assertTrue(entries.isEmpty());
-            }
+            httpClient.buildGetRequest(PP_EXECUTE_PATH)
+                      .addQueryParameter(predicateFieldName, "2.0")
+                      .executeAndConsume(new JsonNodeHandler(),
+                              node -> assertTrue(JsonNodeHelper.getEntries(node).isEmpty()));
         }
 
         // bad query parameter, match document with primitive type field value = 0 or 0.0
-        queryParams.putSingle(predicateFieldName, "foo");
-        try (CloseableClientResponse response = getResponse(RequestType.GET, PP_EXECUTE_PATH, queryParams)) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            List<JsonNode> entries = getEntries(node);
-            assertEquals(1, entries.size());
-            JsonNode entry = entries.get(0);
-            assertEquals(doc0.getId(), entry.get("uid").asText());
-        }
+        httpClient.buildGetRequest(PP_EXECUTE_PATH)
+                  .addQueryParameter(predicateFieldName, "foo")
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      List<JsonNode> entries = JsonNodeHelper.getEntries(node);
+                      assertEquals(1, entries.size());
+                      JsonNode entry = entries.get(0);
+                      assertEquals(doc0.getId(), entry.get("uid").asText());
+                  });
     }
 
-    protected void testPrimitiveTypeStrictValidation(String predicateFieldName) throws IOException {
+    protected void testPrimitiveTypeStrictValidation(String predicateFieldName) {
         // bad query parameter, mustn't match any document with primitive type field value = 0 or 0.0
-        var queryParams = new MultivaluedMapImpl();
-        queryParams.add(predicateFieldName, "foo");
-        try (CloseableClientResponse response = getResponse(RequestType.GET, PP_EXECUTE_PATH, queryParams)) {
-            assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals("exception", node.get("entity-type").asText());
-            assertEquals("400", node.get("status").asText());
-            assertTrue(node.get("message").asText().startsWith("java.lang.NumberFormatException"));
-        }
+        httpClient.buildGetRequest(PP_EXECUTE_PATH)
+                  .addQueryParameter(predicateFieldName, "foo")
+                  .executeAndConsume(new JsonNodeHandler(SC_BAD_REQUEST), node -> {
+                      assertEquals("exception", node.get("entity-type").asText());
+                      assertEquals("400", node.get("status").asText());
+                      assertTrue(node.get("message").asText().startsWith("java.lang.NumberFormatException"));
+                  });
     }
 
 }

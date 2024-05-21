@@ -19,17 +19,21 @@
 package org.nuxeo.ecm.restapi.test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
+import javax.inject.Inject;
 import javax.ws.rs.core.Response;
 
-import org.apache.commons.io.IOUtils;
-import org.junit.Assert;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.nuxeo.common.function.ThrowableConsumer;
 import org.nuxeo.ecm.core.io.marshallers.json.JsonAssert;
 import org.nuxeo.ecm.core.test.annotations.Granularity;
 import org.nuxeo.ecm.core.test.annotations.RepositoryConfig;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
 
@@ -38,14 +42,19 @@ import com.fasterxml.jackson.databind.JsonNode;
 @RunWith(FeaturesRunner.class)
 @Features({ RestServerFeature.class })
 @RepositoryConfig(init = RestServerInit.class, cleanup = Granularity.METHOD)
-public class IntrospectionTests extends BaseTest {
+public class IntrospectionTests {
+
+    @Inject
+    protected RestServerFeature restServerFeature;
+
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.defaultClient(
+            () -> restServerFeature.getRestApiUrl());
 
     @Test
-    public void itCanFetchSchemas() throws Exception {
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "/config/schemas")) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            Assert.assertTrue(node.size() > 0);
+    public void itCanFetchSchemas() {
+        httpClient.buildGetRequest("/config/schemas").executeAndConsume(new JsonNodeHandler(), node -> {
+            assertFalse(node.isEmpty());
             boolean dcFound = false;
             for (int i = 0; i < node.size(); i++) {
                 if ("dublincore".equals(node.get(i).get("name").asText())) {
@@ -53,31 +62,29 @@ public class IntrospectionTests extends BaseTest {
                     break;
                 }
             }
-            Assert.assertTrue(dcFound);
-        }
+            assertTrue(dcFound);
+        });
     }
 
     @Test
-    public void itCanFetchASchema() throws Exception {
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "/config/schemas/dublincore")) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+    public void itCanFetchASchema() {
+        httpClient.buildGetRequest("/config/schemas/dublincore")
+                  .executeAndConsume(ThrowableConsumer.asConsumer(response -> {
+                      assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
 
-            String json = IOUtils.toString(response.getEntityInputStream());
-            JsonAssert jsonAssert = JsonAssert.on(json);
+                      JsonAssert jsonAssert = JsonAssert.on(response.getEntityString());
 
-            jsonAssert.has("name").isEquals("dublincore");
-            jsonAssert.has("@prefix").isEquals("dc");
-            jsonAssert.has("fields.creator").isEquals("string");
-            jsonAssert.has("fields.contributors").isEquals("string[]");
-        }
+                      jsonAssert.has("name").isEquals("dublincore");
+                      jsonAssert.has("@prefix").isEquals("dc");
+                      jsonAssert.has("fields.creator").isEquals("string");
+                      jsonAssert.has("fields.contributors").isEquals("string[]");
+                  }));
     }
 
     @Test
-    public void itCanFetchFacets() throws Exception {
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "/config/facets")) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            Assert.assertTrue(node.size() > 0);
+    public void itCanFetchFacets() {
+        httpClient.buildGetRequest("/config/facets").executeAndConsume(new JsonNodeHandler(), node -> {
+            assertFalse(node.isEmpty());
 
             boolean found = false;
             for (int i = 0; i < node.size(); i++) {
@@ -86,46 +93,36 @@ public class IntrospectionTests extends BaseTest {
                     break;
                 }
             }
-            Assert.assertTrue(found);
-        }
+            assertTrue(found);
+        });
     }
 
     @Test
-    public void itCanFetchAFacet() throws Exception {
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "/config/facets/HasRelatedText")) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-
-            Assert.assertEquals("HasRelatedText", node.get("name").asText());
-            Assert.assertEquals("relatedtext", node.get("schemas").get(0).get("name").asText());
-        }
+    public void itCanFetchAFacet() {
+        httpClient.buildGetRequest("/config/facets/HasRelatedText").executeAndConsume(new JsonNodeHandler(), node -> {
+            assertEquals("HasRelatedText", node.get("name").asText());
+            assertEquals("relatedtext", node.get("schemas").get(0).get("name").asText());
+        });
     }
 
     @Test
-    public void itCanFetchTypes() throws Exception {
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "/config/types")) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
+    public void itCanFetchTypes() {
+        httpClient.buildGetRequest("/config/types").executeAndConsume(new JsonNodeHandler(), node -> {
+            // the export is done as a compound object rather than an array !
+            assertTrue(node.has("doctypes"));
+            assertTrue(node.has("schemas"));
+
+            assertTrue(node.get("doctypes").has("File"));
+            assertTrue(node.get("schemas").has("dublincore"));
+        });
+    }
+
+    @Test
+    public void itCanFetchAType() {
+        httpClient.buildGetRequest("/config/types/File").executeAndConsume(new JsonNodeHandler(), node -> {
 
             // the export is done as a compound object rather than an array !
-
-            Assert.assertTrue(node.has("doctypes"));
-            Assert.assertTrue(node.has("schemas"));
-
-            Assert.assertTrue(node.get("doctypes").has("File"));
-            Assert.assertTrue(node.get("schemas").has("dublincore"));
-        }
-    }
-
-    @Test
-    public void itCanFetchAType() throws Exception {
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "/config/types/File")) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-
-            // the export is done as a compound object rather than an array !
-
-            Assert.assertEquals("Document", node.get("parent").asText());
+            assertEquals("Document", node.get("parent").asText());
 
             boolean dcFound = false;
             JsonNode schemas = node.get("schemas");
@@ -135,8 +132,8 @@ public class IntrospectionTests extends BaseTest {
                     break;
                 }
             }
-            Assert.assertTrue(dcFound);
-        }
+            assertTrue(dcFound);
+        });
     }
 
 }

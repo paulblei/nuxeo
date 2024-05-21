@@ -18,6 +18,7 @@ package org.nuxeo.ecm.restapi.server.jaxrs.management;
 
 import static javax.servlet.http.HttpServletResponse.SC_OK;
 import static org.junit.Assert.assertEquals;
+import static org.nuxeo.common.function.ThrowableConsumer.asConsumer;
 import static org.nuxeo.ecm.restapi.server.jaxrs.management.ConfigurationObject.OS_TIMEZONE_ID_KEY;
 import static org.nuxeo.ecm.restapi.server.jaxrs.management.ConfigurationObject.OS_TIMEZONE_OFFSET_KEY;
 
@@ -31,7 +32,6 @@ import org.junit.Before;
 import org.junit.Test;
 import org.nuxeo.ecm.core.io.marshallers.json.JsonAssert;
 import org.nuxeo.ecm.restapi.test.ManagementBaseTest;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
 import org.nuxeo.runtime.api.Framework;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.WithFrameworkProperty;
@@ -63,10 +63,10 @@ public class TestConfigurationObject extends ManagementBaseTest {
     @Test
     @WithFrameworkProperty(name = "superSecret", value = "myBFFname")
     @Deploy("org.nuxeo.ecm.platform.restapi.test.test:test-configuration-contrib.xml")
-    public void testGet() throws IOException {
-        try (CloseableClientResponse response = httpClientRule.get("/management/configuration")) {
+    public void testGet() {
+        httpClient.buildGetRequest("/management/configuration").executeAndConsume(asConsumer(response -> {
             assertEquals(SC_OK, response.getStatus());
-            String json = response.getEntity(String.class);
+            String json = response.getEntityString();
             var jsonAssert = JsonAssert.on(json);
             var configuredProps = jsonAssert.get("configuredProperties");
             configuredProps.has("blahTokenBlah").isEquals("***");
@@ -92,6 +92,6 @@ public class TestConfigurationObject extends ManagementBaseTest {
             // those value will differ between dev workstations and ci/cd containers
             miscProps.has(OS_TIMEZONE_ID_KEY);
             miscProps.has(OS_TIMEZONE_OFFSET_KEY);
-        }
+        }));
     }
 }

@@ -18,7 +18,6 @@
  */
 package org.nuxeo.ecm.restapi.server.jaxrs.search.test;
 
-import static java.util.Collections.singletonMap;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.nuxeo.ecm.platform.audit.provider.LatestCreatedUsersOrGroupsPageProvider.LATEST_CREATED_USERS_OR_GROUPS_PROVIDER;
@@ -26,16 +25,17 @@ import static org.nuxeo.ecm.platform.audit.provider.LatestCreatedUsersOrGroupsPa
 import java.util.List;
 
 import javax.inject.Inject;
-import javax.ws.rs.core.Response;
 
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.nuxeo.ecm.core.api.DocumentModel;
 import org.nuxeo.ecm.platform.audit.AuditFeature;
 import org.nuxeo.ecm.platform.usermanager.UserManager;
-import org.nuxeo.ecm.restapi.test.BaseTest;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
-import org.nuxeo.runtime.test.runner.Deploy;
+import org.nuxeo.ecm.restapi.test.JsonNodeHelper;
+import org.nuxeo.ecm.restapi.test.RestServerFeature;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
 import org.nuxeo.runtime.test.runner.TransactionalFeature;
@@ -47,7 +47,10 @@ import com.fasterxml.jackson.databind.JsonNode;
  */
 @RunWith(FeaturesRunner.class)
 @Features({ AuditFeature.class, SearchRestFeature.class })
-public class SearchPageProviderAuditTest extends BaseTest {
+public class SearchPageProviderAuditTest {
+
+    @Inject
+    protected RestServerFeature restServerFeature;
 
     @Inject
     protected TransactionalFeature txFeature;
@@ -55,16 +58,16 @@ public class SearchPageProviderAuditTest extends BaseTest {
     @Inject
     protected UserManager userManager;
 
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.defaultClient(
+            () -> restServerFeature.getRestApiUrl());
+
     @Test
-    public void iCanPerformPageProviderOnAudit() throws Exception {
+    public void iCanPerformPageProviderOnAudit() {
         // Request the PageProvider while there's nothing to return
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                "search/pp/" + LATEST_CREATED_USERS_OR_GROUPS_PROVIDER + "/execute")) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            List<JsonNode> entries = getEntries(node);
-            assertTrue(entries.isEmpty());
-        }
+        httpClient.buildGetRequest("/search/pp/" + LATEST_CREATED_USERS_OR_GROUPS_PROVIDER + "/execute")
+                  .executeAndConsume(new JsonNodeHandler(),
+                          node -> assertTrue(JsonNodeHelper.getEntries(node).isEmpty()));
 
         // Then create some data
         DocumentModel groupModel = userManager.getBareGroupModel();
@@ -83,22 +86,20 @@ public class SearchPageProviderAuditTest extends BaseTest {
         txFeature.nextTransaction();
 
         // Then request the data
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                "search/pp/" + LATEST_CREATED_USERS_OR_GROUPS_PROVIDER + "/execute", singletonMap("properties", "*"))) {
-
-            // Then I get user & group as document listing
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            List<JsonNode> entries = getEntries(node);
-            assertEquals(2, entries.size());
-            JsonNode jsonNode = entries.get(0);
-            assertEquals("my_user", jsonNode.get("title").asText());
-            assertEquals("My", jsonNode.get("properties").get("user:firstName").asText());
-            assertEquals("User", jsonNode.get("properties").get("user:lastName").asText());
-            jsonNode = entries.get(1);
-            assertEquals("my_group", jsonNode.get("title").asText());
-            assertEquals("My Group", jsonNode.get("properties").get("group:grouplabel").asText());
-            assertEquals("description of my_group", jsonNode.get("properties").get("group:description").asText());
-        }
+        httpClient.buildGetRequest("/search/pp/" + LATEST_CREATED_USERS_OR_GROUPS_PROVIDER + "/execute")
+                  .addHeader("properties", "*")
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      List<JsonNode> entries = JsonNodeHelper.getEntries(node);
+                      assertEquals(2, entries.size());
+                      JsonNode jsonNode = entries.get(0);
+                      assertEquals("my_user", jsonNode.get("title").asText());
+                      assertEquals("My", jsonNode.get("properties").get("user:firstName").asText());
+                      assertEquals("User", jsonNode.get("properties").get("user:lastName").asText());
+                      jsonNode = entries.get(1);
+                      assertEquals("my_group", jsonNode.get("title").asText());
+                      assertEquals("My Group", jsonNode.get("properties").get("group:grouplabel").asText());
+                      assertEquals("description of my_group",
+                              jsonNode.get("properties").get("group:description").asText());
+                  });
     }
 }

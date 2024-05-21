@@ -26,7 +26,7 @@ import java.io.Serializable;
 import java.util.Map;
 
 import org.junit.Test;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.CloseableHttpResponse;
 import org.nuxeo.runtime.test.runner.Deploy;
 
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -41,10 +41,10 @@ public class TestCheckFileInfoUpdater extends AbstractTestFilesEndpoint {
     // NXP-31852
     @Test
     public void testCheckFileInfoUpdater() throws IOException {
-        try (CloseableClientResponse response = get(johnToken, blobDocFileId)) {
+        try (CloseableHttpResponse response = get(johnToken, blobDocFileId)) {
             assertEquals(200, response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            Map<String, Serializable> map = mapper.convertValue(node, new TypeReference<>() {
+            JsonNode node = MAPPER.readTree(response.getEntityInputStream());
+            Map<String, Serializable> map = MAPPER.convertValue(node, new TypeReference<>() {
             });
             assertTrue(map.values().stream().allMatch("foobar"::equals));
         }

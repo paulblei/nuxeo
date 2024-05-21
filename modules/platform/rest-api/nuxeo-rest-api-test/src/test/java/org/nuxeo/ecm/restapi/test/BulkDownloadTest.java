@@ -20,10 +20,15 @@
 package org.nuxeo.ecm.restapi.test;
 
 import static java.util.stream.Collectors.toList;
+import static org.apache.http.HttpStatus.SC_OK;
 import static org.junit.Assert.assertEquals;
 
 import java.util.List;
 
+import javax.inject.Inject;
+import javax.ws.rs.core.MediaType;
+
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.nuxeo.ecm.collections.core.test.CollectionFeature;
@@ -33,6 +38,8 @@ import org.nuxeo.ecm.core.event.test.CapturingEventListener;
 import org.nuxeo.ecm.core.io.download.DownloadService;
 import org.nuxeo.ecm.core.test.annotations.Granularity;
 import org.nuxeo.ecm.core.test.annotations.RepositoryConfig;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.HttpStatusCodeHandler;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
@@ -48,15 +55,31 @@ import org.nuxeo.runtime.test.runner.FeaturesRunner;
 @Deploy("org.nuxeo.ecm.platform.io.core")
 @Deploy("org.nuxeo.ecm.platform.rendition.api")
 @Deploy("org.nuxeo.ecm.platform.rendition.core")
-public class BulkDownloadTest extends BaseTest {
+public class BulkDownloadTest {
+
+    @Inject
+    protected RestServerFeature restServerFeature;
+
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.defaultClient(
+            () -> restServerFeature.getRestApiUrl());
 
     // NXP-30401
     @Test
     public void testAuditEventOnSelectionDownload() {
-        var body = "{\"input\":\"docs:/folder_1/note_1,/folder_1/note_3\",\"params\":{\"filename\":\"selection.zip\"}}";
-        try (var listener = new CapturingEventListener(DownloadService.EVENT_NAME);
-                var response = getResponse(RequestType.POST, "automation/Blob.BulkDownload", body)) {
-            assertEquals(200, response.getStatus());
+        var body = """
+                {
+                  "input": "docs:/folder_1/note_1,/folder_1/note_3",
+                  "params": {
+                    "filename": "selection.zip"
+                  }
+                }
+                """;
+        try (var listener = new CapturingEventListener(DownloadService.EVENT_NAME)) {
+            httpClient.buildPostRequest("/automation/Blob.BulkDownload")
+                      .entity(body)
+                      .contentType(MediaType.APPLICATION_JSON)
+                      .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(SC_OK, status.intValue()));
 
             var downloadedDocumentTitles = listener.streamCapturedEventContexts(DocumentEventContext.class)
                                                    .map(DocumentEventContext::getSourceDocument)
@@ -74,10 +97,19 @@ public class BulkDownloadTest extends BaseTest {
     // Document.GetContainerRendition (check this operation to see the call to DownloadService)
     @Test
     public void testAuditEventOnFolderDownload() {
-        var body = "{\"input\":\"docs:/folder_1\",\"params\":{\"filename\":\"Folder1.zip\"}}";
-        try (var listener = new CapturingEventListener(DownloadService.EVENT_NAME);
-                var response = getResponse(RequestType.POST, "automation/Blob.BulkDownload", body)) {
-            assertEquals(200, response.getStatus());
+        var body = """
+                {
+                  "input": "docs:/folder_1",
+                  "params": {
+                    "filename": "Folder1.zip"
+                  }
+                }
+                """;
+        try (var listener = new CapturingEventListener(DownloadService.EVENT_NAME)) {
+            httpClient.buildPostRequest("/automation/Blob.BulkDownload")
+                      .entity(body)
+                      .contentType(MediaType.APPLICATION_JSON)
+                      .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(SC_OK, status.intValue()));
 
             var downloadedDocumentTitles = listener.streamCapturedEventContexts(DocumentEventContext.class)
                                                    .map(DocumentEventContext::getSourceDocument)

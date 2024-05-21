@@ -24,8 +24,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.nuxeo.ecm.jwt.JWTClaims.CLAIM_SUBJECT;
 
-import java.io.IOException;
-
 import javax.inject.Inject;
 import javax.servlet.http.HttpServletResponse;
 import javax.ws.rs.core.HttpHeaders;
@@ -37,15 +35,15 @@ import org.junit.runner.RunWith;
 import org.nuxeo.ecm.jwt.JWTService;
 import org.nuxeo.ecm.restapi.test.ManagementBaseTest;
 import org.nuxeo.ecm.restapi.test.RestServerFeature;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
-import org.nuxeo.jaxrs.test.HttpClientTestRule;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.HttpStatusCodeHandler;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
 import org.nuxeo.runtime.test.runner.ServletContainerFeature;
 import org.nuxeo.runtime.test.runner.WithFrameworkProperty;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
@@ -66,9 +64,9 @@ public class TestJWTAuthentication extends ManagementBaseTest {
     @Inject
     protected JWTService jwtService;
 
-    protected HttpClientTestRule authorizedHttpClientRule;
+    protected HttpClientTestRule authorizedHttpClient;
 
-    protected HttpClientTestRule unauthorizedHttpClientRule;
+    protected HttpClientTestRule unauthorizedHttpClient;
 
     protected ObjectMapper mapper = new ObjectMapper();
 
@@ -78,37 +76,34 @@ public class TestJWTAuthentication extends ManagementBaseTest {
         String unauthorizedUserToken = jwtService.newBuilder().withClaim(CLAIM_SUBJECT, "transient/bar").build();
 
         String url = String.format("http://localhost:%d/api/v1", servletContainerFeature.getPort());
-        authorizedHttpClientRule = new HttpClientTestRule.Builder().url(url)
-                                                                   .accept(APPLICATION_JSON)
-                                                                   .header(HttpHeaders.AUTHORIZATION,
-                                                                           BEARER_SP + authorizedUserToken)
-                                                                   .build();
-        authorizedHttpClientRule.starting();
-        unauthorizedHttpClientRule = new HttpClientTestRule.Builder().url(url)
-                                                                     .accept(APPLICATION_JSON)
-                                                                     .header(HttpHeaders.AUTHORIZATION,
-                                                                             BEARER_SP + unauthorizedUserToken)
-                                                                     .build();
-        unauthorizedHttpClientRule.starting();
+        authorizedHttpClient = HttpClientTestRule.builder()
+                                                 .url(url)
+                                                 .accept(APPLICATION_JSON)
+                                                 .header(HttpHeaders.AUTHORIZATION, BEARER_SP + authorizedUserToken)
+                                                 .build();
+        authorizedHttpClient.starting();
+        unauthorizedHttpClient = HttpClientTestRule.builder()
+                                                   .url(url)
+                                                   .accept(APPLICATION_JSON)
+                                                   .header(HttpHeaders.AUTHORIZATION, BEARER_SP + unauthorizedUserToken)
+                                                   .build();
+        unauthorizedHttpClient.starting();
     }
 
     @After
     public void after() {
-        authorizedHttpClientRule.finished();
-        unauthorizedHttpClientRule.finished();
+        authorizedHttpClient.finished();
+        unauthorizedHttpClient.finished();
     }
 
     @Test
     @WithFrameworkProperty(name = ManagementObject.MANAGEMENT_API_USER_PROPERTY, value = "transient/foo")
-    public void testJWTAuthentication() throws IOException {
-        try (CloseableClientResponse response = authorizedHttpClientRule.get("/management/distribution")) {
-            assertEquals(HttpServletResponse.SC_OK, response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertTrue(node.has("applicationName"));
-        }
+    public void testJWTAuthentication() {
+        authorizedHttpClient.buildGetRequest("/management/distribution")
+                            .executeAndConsume(new JsonNodeHandler(), node -> assertTrue(node.has("applicationName")));
 
-        try (CloseableClientResponse response = unauthorizedHttpClientRule.get("/management/distribution")) {
-            assertEquals(HttpServletResponse.SC_FORBIDDEN, response.getStatus());
-        }
+        unauthorizedHttpClient.buildGetRequest("/management/distribution")
+                              .executeAndConsume(new HttpStatusCodeHandler(),
+                                      status -> assertEquals(HttpServletResponse.SC_FORBIDDEN, status.intValue()));
     }
 }

@@ -19,14 +19,12 @@
 
 package org.nuxeo.ecm.restapi.server.management;
 
-import static javax.servlet.http.HttpServletResponse.SC_OK;
 import static org.junit.Assert.assertEquals;
 import static org.nuxeo.ecm.platform.routing.api.DocumentRoutingConstants.ALL_WORKFLOWS_QUERY;
 import static org.nuxeo.ecm.platform.routing.api.DocumentRoutingConstants.DOCUMENT_ROUTE_DOCUMENT_TYPE;
 import static org.nuxeo.ecm.platform.task.TaskConstants.TASK_PROCESS_ID_PROPERTY_NAME;
 import static org.nuxeo.ecm.platform.task.TaskConstants.TASK_TYPE_NAME;
 
-import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -46,12 +44,10 @@ import org.nuxeo.ecm.platform.audit.AuditFeature;
 import org.nuxeo.ecm.platform.routing.api.DocumentRoutingConstants;
 import org.nuxeo.ecm.platform.routing.test.WorkflowFeature;
 import org.nuxeo.ecm.restapi.test.ManagementBaseTest;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.TransactionalFeature;
-
-import com.fasterxml.jackson.databind.JsonNode;
 
 /**
  * @since 2023
@@ -118,7 +114,7 @@ public class TestWorkflowsObject extends ManagementBaseTest {
     }
 
     @Test
-    public void testGCOrphanRoutes() throws IOException, InterruptedException {
+    public void testGCOrphanRoutes() throws InterruptedException {
         DocumentModelList rs = getDocumentRoutes();
         DocumentModelList rts = getRoutingTaks();
 
@@ -157,16 +153,12 @@ public class TestWorkflowsObject extends ManagementBaseTest {
 
     }
 
-    protected void doGCRoutes(boolean success, int processed, int errorCount, int total)
-            throws IOException, InterruptedException {
-        String commandId;
-        try (CloseableClientResponse response = httpClientRule.delete("/management/workflows/orphaned")) {
-            assertEquals(SC_OK, response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-
-            assertBulkStatusScheduled(node);
-            commandId = getBulkCommandId(node);
-        }
+    protected void doGCRoutes(boolean success, int processed, int errorCount, int total) throws InterruptedException {
+        String commandId = httpClient.buildDeleteRequest("/management/workflows/orphaned")
+                                     .executeAndThen(new JsonNodeHandler(), node -> {
+                                         assertBulkStatusScheduled(node);
+                                         return getBulkCommandId(node);
+                                     });
 
         bulkService.await(commandId, Duration.ofMinutes(1));
 

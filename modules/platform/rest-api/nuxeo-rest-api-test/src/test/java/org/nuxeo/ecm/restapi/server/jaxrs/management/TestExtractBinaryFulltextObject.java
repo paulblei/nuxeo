@@ -19,17 +19,14 @@
 
 package org.nuxeo.ecm.restapi.server.jaxrs.management;
 
-import static javax.servlet.http.HttpServletResponse.SC_OK;
-import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.nuxeo.ecm.core.api.CoreSession.BINARY_FULLTEXT_MAIN_KEY;
 import static org.nuxeo.ecm.core.bulk.io.BulkConstants.STATUS_HAS_ERROR;
 
-import java.io.IOException;
+import java.util.Map;
 
 import javax.inject.Inject;
-import javax.ws.rs.core.MultivaluedMap;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -41,16 +38,12 @@ import org.nuxeo.ecm.core.api.VersioningOption;
 import org.nuxeo.ecm.core.api.blobholder.BlobHolder;
 import org.nuxeo.ecm.core.api.impl.blob.StringBlob;
 import org.nuxeo.ecm.core.api.repository.FulltextConfiguration;
-import org.nuxeo.ecm.core.api.thumbnail.ThumbnailService;
 import org.nuxeo.ecm.core.model.Repository;
 import org.nuxeo.ecm.core.repository.RepositoryService;
 import org.nuxeo.ecm.restapi.test.ManagementBaseTest;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.api.Framework;
 import org.nuxeo.runtime.test.runner.Features;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.sun.jersey.core.util.MultivaluedMapImpl;
 
 /**
  * @since 2021.33
@@ -61,15 +54,12 @@ public class TestExtractBinaryFulltextObject extends ManagementBaseTest {
     @Inject
     protected CoreSession session;
 
-    @Inject
-    protected ThumbnailService thumbnailService;
-
     protected DocumentRef docRef;
 
     protected FulltextConfiguration fulltextConfiguration;
 
     @Before
-    public void createDocument() throws IOException {
+    public void createDocument() {
         // get the fulltext conf
         RepositoryService repositoryService = Framework.getService(RepositoryService.class);
         Repository repository = repositoryService.getRepository(session.getRepositoryName());
@@ -90,9 +80,8 @@ public class TestExtractBinaryFulltextObject extends ManagementBaseTest {
         docRef = file.getRef();
     }
 
-
     @Test
-    public void testRunExtractFulltext() throws IOException {
+    public void testRunExtractFulltext() {
         // default fulltext conf, extraction is done
         var doc = session.getDocument(docRef);
         var ft = doc.getBinaryFulltext();
@@ -113,23 +102,18 @@ public class TestExtractBinaryFulltextObject extends ManagementBaseTest {
         assertTrue(ft.toString(), ft.get(BINARY_FULLTEXT_MAIN_KEY).contains("You know for search"));
     }
 
-    protected void runExtractFulltext() throws IOException {
-        String commandId;
-        MultivaluedMap<String, String> formData = new MultivaluedMapImpl();
-        formData.add("force", "true");
-        try (CloseableClientResponse response = httpClientRule.post("/management/fulltext/extract", formData)) {
-            assertEquals(SC_OK, response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertBulkStatusScheduled(node);
-            commandId = getBulkCommandId(node);
-        }
+    protected void runExtractFulltext() {
+        String commandId = httpClient.buildPostRequest("/management/fulltext/extract")
+                                     .entity(Map.of("force", "true"))
+                                     .executeAndThen(new JsonNodeHandler(), node -> {
+                                         assertBulkStatusScheduled(node);
+                                         return getBulkCommandId(node);
+                                     });
         txFeature.nextTransaction();
-        try (CloseableClientResponse response = httpClientRule.get("/management/bulk/" + commandId)) {
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals(SC_OK, response.getStatus());
+        httpClient.buildGetRequest("/management/bulk/" + commandId).executeAndConsume(new JsonNodeHandler(), node -> {
             assertBulkStatusCompleted(node);
-            assertEquals(false, node.get(STATUS_HAS_ERROR).asBoolean());
-        }
+            assertFalse(node.get(STATUS_HAS_ERROR).asBoolean());
+        });
     }
 
 }

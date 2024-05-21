@@ -31,7 +31,9 @@ import com.sun.jersey.client.apache4.ApacheHttpClient4Handler;
  * Helper for using the Jersey 1 {@link Client}.
  *
  * @since 9.3
+ * @deprecated since 2023.13, use {@link org.nuxeo.http.test.HttpClientTestRule} instead
  */
+@Deprecated(since = "2023.13", forRemoval = true)
 public final class JerseyClientHelper {
 
     public static final int DEFAULT_CONNECTION_TIMEOUT = 60 * 1000; // 60 seconds

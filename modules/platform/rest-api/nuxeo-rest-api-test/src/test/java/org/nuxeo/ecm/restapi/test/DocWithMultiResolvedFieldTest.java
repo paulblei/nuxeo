@@ -18,22 +18,23 @@
  */
 package org.nuxeo.ecm.restapi.test;
 
+import static org.apache.http.HttpStatus.SC_CREATED;
+import static org.apache.http.HttpStatus.SC_OK;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
+import javax.inject.Inject;
 
-import javax.ws.rs.core.Response;
-
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.nuxeo.directory.test.DirectoryFeature;
 import org.nuxeo.ecm.core.test.annotations.Granularity;
 import org.nuxeo.ecm.core.test.annotations.RepositoryConfig;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.HttpStatusCodeHandler;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
@@ -51,58 +52,59 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 @RepositoryConfig(cleanup = Granularity.METHOD, init = RestServerInit.class)
 @Deploy("org.nuxeo.ecm.platform.restapi.test:test-directory-contrib.xml")
 @Deploy("org.nuxeo.ecm.platform.restapi.test.test:test-multi-resolved-fields-docTypes.xml")
-public class DocWithMultiResolvedFieldTest extends BaseTest {
+public class DocWithMultiResolvedFieldTest {
 
-    private static String createDocumentJSON(String properties) {
-        String doc = "{";
-        doc += "\"entity-type\":\"document\" ,";
-        doc += "\"name\":\"doc1\" ,";
-        doc += "\"type\":\"MultiResolved\"";
-        if (properties != null) {
-            doc += ", \"properties\": {";
-            doc += properties;
-            doc += "}";
-        }
-        doc += "}";
-        return doc;
-    }
+    @Inject
+    protected RestServerFeature restServerFeature;
+
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.defaultJsonClient(
+            () -> restServerFeature.getRestApiUrl());
 
     @Test
-    public void testRePostResolvedXVocabularyEntrySameParentDirectory() throws Exception {
+    public void testRePostResolvedXVocabularyEntrySameParentDirectory() {
         createDocumentThenRePostResolved("mr:coverages", "Albania");
     }
 
     @Test
-    public void testRePostResolvedXVocabularyEntryDifferentParentDirectory() throws Exception {
+    public void testRePostResolvedXVocabularyEntryDifferentParentDirectory() {
         createDocumentThenRePostResolved("mr:countries", "Algeria");
     }
 
-    protected void createDocumentThenRePostResolved(String propertyName, String value) throws IOException {
-        Map<String, String> headers = new HashMap<>();
-        headers.put("fetch-document", "properties");
-        headers.put("properties", "*");
-        headers.put("fetch-directoryEntry", "parent");
-        JsonNode node = null;
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "path/",
-                createDocumentJSON("\"" + propertyName + "\": [\"" + value + "\"]"), headers)) {
-            assertEquals(Response.Status.CREATED.getStatusCode(), response.getStatus());
-            node = mapper.readTree(response.getEntityInputStream());
-            assertNotNull(node);
-            JsonNode props = node.get("properties");
-            assertNotNull(props);
-            assertNotNull(props.has(propertyName));
-            ArrayNode propertyValue = (ArrayNode) props.get(propertyName);
-            assertEquals(1, propertyValue.size());
-            JsonNode firstPropertyValue = propertyValue.get(0);
-            assertTrue(firstPropertyValue.isObject());
-            assertTrue(firstPropertyValue.has("properties"));
-            assertTrue(firstPropertyValue.get("properties").has("parent"));
-            assertTrue(firstPropertyValue.get("properties").get("parent").isObject());
-        }
+    protected void createDocumentThenRePostResolved(String propertyName, String value) {
+        String requestEntity = """
+                {
+                  "entity-type": "document",
+                  "name": "doc1",
+                  "type": "MultiResolved",
+                  "properties": {
+                    "%s": ["%s"]
+                  }
+                }
+                """.formatted(propertyName, value);
+        String entity = httpClient.buildPostRequest("/path/")
+                                  .entity(requestEntity)
+                                  .addHeader("fetch-document", "properties")
+                                  .addHeader("properties", "*")
+                                  .addHeader("fetch-directoryEntry", "parent")
+                                  .executeAndThen(new JsonNodeHandler(SC_CREATED), node -> {
+                                      assertNotNull(node);
+                                      JsonNode props = node.get("properties");
+                                      assertNotNull(props);
+                                      assertTrue(props.has(propertyName));
+                                      ArrayNode propertyValue = (ArrayNode) props.get(propertyName);
+                                      assertEquals(1, propertyValue.size());
+                                      JsonNode firstPropertyValue = propertyValue.get(0);
+                                      assertTrue(firstPropertyValue.isObject());
+                                      assertTrue(firstPropertyValue.has("properties"));
+                                      assertTrue(firstPropertyValue.get("properties").has("parent"));
+                                      assertTrue(firstPropertyValue.get("properties").get("parent").isObject());
+                                      return node.toString();
+                                  });
         // Re-Post identical
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "path/doc1", node.toString())) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildPutRequest("/path/doc1")
+                  .entity(entity)
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(SC_OK, status.intValue()));
     }
 
 }

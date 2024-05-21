@@ -19,17 +19,12 @@
 
 package org.nuxeo.ecm.restapi.server.jaxrs.management;
 
-import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import java.io.IOException;
-
-import javax.servlet.http.HttpServletResponse;
-
 import org.junit.Test;
 import org.nuxeo.ecm.restapi.test.ManagementBaseTest;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
@@ -39,15 +34,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 public class TestPageProvidersObject extends ManagementBaseTest {
 
     @Test
-    public void testPageProvidersEndpoint() throws IOException {
-        try (CloseableClientResponse response = httpClientRule.get("/management/page-providers")) {
-            assertEquals(HttpServletResponse.SC_OK, response.getStatus());
-            JsonNode ppList = mapper.readTree(response.getEntityInputStream());
+    public void testPageProvidersEndpoint() {
+        httpClient.buildGetRequest("/management/page-providers").executeAndConsume(new JsonNodeHandler(), ppList -> {
             assertTrue(ppList.isArray());
             assertFalse(ppList.isEmpty());
             JsonNode pp = ppList.get(0);
             assertFalse(pp.get("name").asText().isEmpty());
             assertFalse(pp.get("class").asText().isEmpty());
-        }
+        });
     }
 }

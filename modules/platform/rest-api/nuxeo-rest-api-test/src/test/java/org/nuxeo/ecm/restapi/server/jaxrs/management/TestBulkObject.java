@@ -19,21 +19,17 @@
 package org.nuxeo.ecm.restapi.server.jaxrs.management;
 
 import static javax.servlet.http.HttpServletResponse.SC_NOT_FOUND;
-import static javax.servlet.http.HttpServletResponse.SC_OK;
 import static org.junit.Assert.assertEquals;
 import static org.nuxeo.ecm.core.api.security.SecurityConstants.SYSTEM_USERNAME;
-
-import java.io.IOException;
 
 import org.junit.Test;
 import org.nuxeo.ecm.core.bulk.BulkService;
 import org.nuxeo.ecm.core.bulk.message.BulkCommand;
 import org.nuxeo.ecm.restapi.test.ManagementBaseTest;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.handler.HttpStatusCodeHandler;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.api.Framework;
 import org.nuxeo.runtime.test.runner.Deploy;
-
-import com.fasterxml.jackson.databind.JsonNode;
 
 /**
  * @since 11.3
@@ -42,26 +38,22 @@ import com.fasterxml.jackson.databind.JsonNode;
 public class TestBulkObject extends ManagementBaseTest {
 
     @Test
-    public void testGetStatus() throws IOException {
+    public void testGetStatus() {
         BulkService bulkService = Framework.getService(BulkService.class);
         String commandId = bulkService.submit(
                 new BulkCommand.Builder("dummySequential", "SELECT * FROM Document", SYSTEM_USERNAME).build());
 
         txFeature.nextTransaction();
 
-        try (CloseableClientResponse response = httpClientRule.get("/management/bulk/" + commandId)) {
-            assertEquals(SC_OK, response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-
-            assertBulkStatusCompleted(node);
-        }
+        httpClient.buildGetRequest("/management/bulk/" + commandId)
+                  .executeAndConsume(new JsonNodeHandler(), this::assertBulkStatusCompleted);
     }
 
     @Test
     public void testGetStatusWithWrongCommandId() {
-        try (CloseableClientResponse response = httpClientRule.get("/management/bulk/fakeCommandId")) {
-            assertEquals(SC_NOT_FOUND, response.getStatus());
-        }
+        httpClient.buildGetRequest("/management/bulk/fakeCommandId")
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_NOT_FOUND, status.intValue()));
     }
 
 }

@@ -75,4 +75,10 @@ public class ServletContainerFeature implements RunnerFeature {
         return port;
     }
 
+    /**
+     * @since 2023.13
+     */
+    public String getHttpUrl() {
+        return "http://localhost:" + port;
+    }
 }

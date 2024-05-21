@@ -22,31 +22,34 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
 import java.io.IOException;
-import java.util.Collections;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import javax.inject.Inject;
+import javax.ws.rs.core.MediaType;
 
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.nuxeo.common.function.ThrowableFunction;
 import org.nuxeo.ecm.core.api.CoreInstance;
 import org.nuxeo.ecm.core.api.CoreSession;
 import org.nuxeo.ecm.core.api.DocumentModel;
 import org.nuxeo.ecm.core.api.IdRef;
 import org.nuxeo.ecm.core.api.PathRef;
 import org.nuxeo.ecm.core.io.registry.context.RenderingContext;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.HttpClientTestRule;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
 import org.nuxeo.runtime.test.runner.TransactionalFeature;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * Tests the REST API document endpoints with multiple repositories.
@@ -56,13 +59,22 @@ import com.fasterxml.jackson.databind.JsonNode;
 @RunWith(FeaturesRunner.class)
 @Features({ RestServerFeature.class })
 @Deploy("org.nuxeo.ecm.platform.restapi.test.test:test-multi-repository-contrib.xml")
-public class TestMultiRepository extends BaseTest {
+public class TestMultiRepository {
+
+    protected static final ObjectMapper MAPPER = new ObjectMapper();
+
+    @Inject
+    protected RestServerFeature restServerFeature;
 
     @Inject
     protected TransactionalFeature txFeature;
 
     @Inject
     protected CoreSession defaultRepositorySession;
+
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.defaultClient(
+            () -> restServerFeature.getRestApiUrl());
 
     protected CoreSession otherRepositorySession;
 
@@ -214,18 +226,21 @@ public class TestMultiRepository extends BaseTest {
             path = "repo/" + repoName + "/" + path;
         }
         String data = buildDocumentCreationJSON(name, title);
-        Map<String, String> headers = repoHeader
-                ? Collections.singletonMap(RenderingContext.REPOSITORY_NAME_REQUEST_HEADER, repoName)
-                : Collections.emptyMap();
-        try (CloseableClientResponse response = getResponse(RequestType.POST, path, data, headers)) {
-            int status = response.getStatus();
-            if (status == 201) {
-                txFeature.nextTransaction();
-                DocumentModel child = session.getChild(session.getRootDocument().getRef(), name);
-                assertEquals(title, child.getTitle());
-            }
-            return status;
-        }
+        Map<String, String> headers = repoHeader ? Map.of(RenderingContext.REPOSITORY_NAME_REQUEST_HEADER, repoName)
+                : Map.of();
+        return httpClient.buildPostRequest(path)
+                         .addHeaders(headers)
+                         .entity(data)
+                         .contentType(MediaType.APPLICATION_JSON)
+                         .executeAndThen(response -> {
+                             int status = response.getStatus();
+                             if (status == 201) {
+                                 txFeature.nextTransaction();
+                                 DocumentModel child = session.getChild(session.getRootDocument().getRef(), name);
+                                 assertEquals(title, child.getTitle());
+                             }
+                             return status;
+                         });
     }
 
     protected int read(String repoName) throws IOException {
@@ -255,18 +270,19 @@ public class TestMultiRepository extends BaseTest {
         if (repoInPath) {
             path = "repo/" + repoName + "/" + path;
         }
-        Map<String, String> headers = repoHeader ? Collections.singletonMap("X-NXRepository", repoName)
-                : Collections.emptyMap();
-        try (CloseableClientResponse response = getResponse(RequestType.GET, path, headers)) {
-            int status = response.getStatus();
-            if (status == 200) {
-                JsonNode node = mapper.readTree(response.getEntityInputStream());
-                assertEquals(repoName, node.get("repository").textValue());
-                assertEquals(rootDocumentId, node.get("uid").textValue());
-                assertEquals("/", node.get("path").textValue());
-            }
-            return status;
-        }
+        Map<String, String> headers = repoHeader ? Map.of("X-NXRepository", repoName) : Map.of();
+        return httpClient.buildGetRequest(path)
+                         .addHeaders(headers)
+                         .executeAndThen(ThrowableFunction.asFunction(response -> {
+                             int status = response.getStatus();
+                             if (status == 200) {
+                                 JsonNode node = MAPPER.readTree(response.getEntityInputStream());
+                                 assertEquals(repoName, node.get("repository").textValue());
+                                 assertEquals(rootDocumentId, node.get("uid").textValue());
+                                 assertEquals("/", node.get("path").textValue());
+                             }
+                             return status;
+                         }));
     }
 
     protected int update(String repoName, String title, boolean specifyUID) {
@@ -299,16 +315,19 @@ public class TestMultiRepository extends BaseTest {
             path = "repo/" + repoName + "/" + path;
         }
         String data = buildDocumentUpdateJSON(title, specifyUID ? rootDocumentId : null);
-        Map<String, String> headers = repoHeader ? Collections.singletonMap("X-NXRepository", repoName)
-                : Collections.emptyMap();
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, path, data, headers)) {
-            int status = response.getStatus();
-            if (status == 200) {
-                txFeature.nextTransaction();
-                assertEquals(title, session.getRootDocument().getTitle());
-            }
-            return status;
-        }
+        Map<String, String> headers = repoHeader ? Map.of("X-NXRepository", repoName) : Map.of();
+        return httpClient.buildPutRequest(path)
+                         .addHeaders(headers)
+                         .entity(data)
+                         .contentType(MediaType.APPLICATION_JSON)
+                         .executeAndThen(response -> {
+                             int status = response.getStatus();
+                             if (status == 200) {
+                                 txFeature.nextTransaction();
+                                 assertEquals(title, session.getRootDocument().getTitle());
+                             }
+                             return status;
+                         });
     }
 
     protected int delete(String repoName) throws IOException {
@@ -340,16 +359,15 @@ public class TestMultiRepository extends BaseTest {
         if (repoInPath) {
             path = "repo/" + repoName + "/" + path;
         }
-        Map<String, String> headers = repoHeader ? Collections.singletonMap("X-NXRepository", repoName)
-                : Collections.emptyMap();
-        try (CloseableClientResponse response = getResponse(RequestType.DELETE, path, headers)) {
+        Map<String, String> headers = repoHeader ? Map.of("X-NXRepository", repoName) : Map.of();
+        return httpClient.buildDeleteRequest(path).addHeaders(headers).executeAndThen(response -> {
             int status = response.getStatus();
             if (status == 204) {
                 txFeature.nextTransaction();
                 assertFalse(session.exists(new IdRef(docId)));
             }
             return status;
-        }
+        });
     }
 
     protected String buildDocumentCreationJSON(String name, String title) {

@@ -18,6 +18,8 @@
  */
 package org.nuxeo.ftest.server;
 
+import static org.apache.http.HttpStatus.SC_OK;
+import static org.apache.http.HttpStatus.SC_UNAUTHORIZED;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
@@ -39,31 +41,23 @@ import static org.nuxeo.ecm.platform.oauth2.clients.OAuth2ClientService.OAUTH2CL
 import static org.nuxeo.ecm.platform.oauth2.request.AuthorizationRequest.MISSING_REQUIRED_FIELD_MESSAGE;
 import static org.nuxeo.ecm.platform.oauth2.tokens.OAuth2TokenStore.DIRECTORY_NAME;
 
-import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
-import javax.ws.rs.core.MultivaluedMap;
-
 import org.junit.After;
 import org.junit.AfterClass;
-import org.junit.Before;
 import org.junit.BeforeClass;
+import org.junit.Rule;
 import org.junit.Test;
 import org.nuxeo.common.utils.URIUtils;
 import org.nuxeo.ecm.platform.oauth2.NuxeoOAuth2Servlet;
 import org.nuxeo.functionaltests.AbstractTest;
 import org.nuxeo.functionaltests.RestHelper;
 import org.nuxeo.functionaltests.pages.LoginPage;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
-import org.nuxeo.jaxrs.test.JerseyClientHelper;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.sun.jersey.api.client.Client;
-import com.sun.jersey.api.client.ClientResponse;
-import com.sun.jersey.api.client.WebResource;
-import com.sun.jersey.core.util.MultivaluedMapImpl;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.HttpStatusCodeHandler;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 
 /**
  * Tests the OAuth2 authorization flow handled by the {@link NuxeoOAuth2Servlet}.
@@ -94,7 +88,8 @@ public class ITOAuth2Test extends AbstractTest {
 
     protected static String oauth2ClientDirectoryEntryId;
 
-    protected Client client;
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.builder().build();
 
     @BeforeClass
     public static void beforeClass() {
@@ -112,16 +107,10 @@ public class ITOAuth2Test extends AbstractTest {
         RestHelper.cleanup();
     }
 
-    @Before
-    public void before() {
-        client = JerseyClientHelper.DEFAULT_CLIENT;
-    }
-
     @After
     public void after() {
         RestHelper.deleteDirectoryEntries(DIRECTORY_NAME);
         logoutSimply();
-        client.destroy();
     }
 
     @Test
@@ -323,7 +312,7 @@ public class ITOAuth2Test extends AbstractTest {
     }
 
     @Test
-    public void testAuthorizationOnRestAPI() throws IOException {
+    public void testAuthorizationOnRestAPI() {
         OAuth2Token token = getOAuth2Token("Administrator", "Administrator");
         logoutSimply();
 
@@ -338,7 +327,7 @@ public class ITOAuth2Test extends AbstractTest {
     }
 
     @Test
-    public void testAuthorizationOnCMIS() throws IOException {
+    public void testAuthorizationOnCMIS() {
         OAuth2Token token = getOAuth2Token("Administrator", "Administrator");
 
         checkAuthorizationWithValidAccessToken(JSON_CMIS_PATH, token.accessToken);
@@ -366,7 +355,7 @@ public class ITOAuth2Test extends AbstractTest {
     }
 
     @Test
-    public void testAuthorizationWithExistingToken() throws IOException {
+    public void testAuthorizationWithExistingToken() {
         // Get an OAuth2 token
         OAuth2Token initialToken = getOAuth2Token(TEST_USERNAME, TEST_PASSWORD);
         logoutSimply();
@@ -420,7 +409,7 @@ public class ITOAuth2Test extends AbstractTest {
                 Collections.singletonMap("autoGrant", autoGrant));
     }
 
-    protected OAuth2Token getOAuth2Token(String username, String password) throws IOException {
+    protected OAuth2Token getOAuth2Token(String username, String password) {
         LoginPage loginPage = getLoginPage();
         loginPage.login(username, password);
 
@@ -437,23 +426,15 @@ public class ITOAuth2Test extends AbstractTest {
         return getOAuth2Token(params);
     }
 
-    protected OAuth2Token getOAuth2Token(Map<String, String> params) throws IOException {
-        WebResource wr = client.resource(NUXEO_URL).path("oauth2").path(ENDPOINT_TOKEN);
-
-        MultivaluedMap<String, String> formData = new MultivaluedMapImpl();
-        for (Map.Entry<String, String> entry : params.entrySet()) {
-            formData.add(entry.getKey(), entry.getValue());
-        }
-
-        try (CloseableClientResponse cr = CloseableClientResponse.of(wr.post(ClientResponse.class, formData))) {
-            String json = cr.getEntity(String.class);
-            ObjectMapper obj = new ObjectMapper();
-            Map<?, ?> token = obj.readValue(json, Map.class);
-            return new OAuth2Token((String) token.get("access_token"), (String) token.get("refresh_token"));
-        }
+    protected OAuth2Token getOAuth2Token(Map<String, String> params) {
+        return httpClient.buildPostRequest("/oauth2/" + ENDPOINT_TOKEN)
+                         .entity(params)
+                         .executeAndThen(new JsonNodeHandler(),
+                                 node -> new OAuth2Token(node.get("access_token").textValue(),
+                                         node.get("refresh_token").textValue()));
     }
 
-    protected OAuth2Token refreshOAuth2Token(String refreshToken) throws IOException {
+    protected OAuth2Token refreshOAuth2Token(String refreshToken) {
         Map<String, String> params = new HashMap<>();
         params.put("grant_type", "refresh_token");
         params.put("client_id", "test-client");
@@ -462,36 +443,28 @@ public class ITOAuth2Test extends AbstractTest {
     }
 
     protected void checkAuthorizationWithValidAccessToken(String path, String accessToken) {
-        WebResource wr = client.resource(NUXEO_URL).path(path);
-        try (CloseableClientResponse cr = CloseableClientResponse.of(wr.get(ClientResponse.class))) {
-            assertEquals(401, cr.getStatus());
-        }
+        httpClient.buildGetRequest(path)
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_UNAUTHORIZED, status.intValue()));
 
-        wr = client.resource(NUXEO_URL).path(path);
-        try (CloseableClientResponse cr = CloseableClientResponse.of(
-                wr.queryParam("access_token", accessToken).get(ClientResponse.class))) {
-            assertEquals(200, cr.getStatus());
-        }
+        httpClient.buildGetRequest(path)
+                  .addQueryParameter("access_token", accessToken)
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(SC_OK, status.intValue()));
 
-        wr = client.resource(NUXEO_URL).path(path);
-        try (CloseableClientResponse cr = CloseableClientResponse.of(
-                wr.header("Authorization", "Bearer " + accessToken).get(ClientResponse.class))) {
-            assertEquals(200, cr.getStatus());
-        }
+        httpClient.buildGetRequest(path)
+                  .addHeader("Authorization", "Bearer " + accessToken)
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(SC_OK, status.intValue()));
     }
 
     protected void checkAuthorizationWithInvalidAccessToken(String path, String accessToken) {
-        WebResource wr = client.resource(NUXEO_URL).path(path);
-        try (CloseableClientResponse cr = CloseableClientResponse.of(
-                wr.queryParam("access_token", accessToken).get(ClientResponse.class))) {
-            assertEquals(401, cr.getStatus());
-        }
-
-        wr = client.resource(NUXEO_URL).path(path);
-        try (CloseableClientResponse cr = CloseableClientResponse.of(
-                wr.header("Authorization", "Bearer " + accessToken).get(ClientResponse.class))) {
-            assertEquals(401, cr.getStatus());
-        }
+        httpClient.buildGetRequest(path)
+                  .addQueryParameter("access_token", accessToken)
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_UNAUTHORIZED, status.intValue()));
+        httpClient.buildGetRequest(path)
+                  .addHeader("Authorization", "Bearer " + accessToken)
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_UNAUTHORIZED, status.intValue()));
     }
 
     protected OAuth2ErrorPage getOAuth2ErrorPage(String resource) {

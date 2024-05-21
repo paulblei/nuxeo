@@ -18,6 +18,7 @@
  */
 package org.nuxeo.ecm.restapi.test;
 
+import static org.apache.http.HttpStatus.SC_NOT_FOUND;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.nuxeo.ecm.core.bulk.action.SetPropertiesAction.ACTION_NAME;
@@ -27,20 +28,20 @@ import java.time.Duration;
 import java.util.UUID;
 
 import javax.inject.Inject;
-import javax.ws.rs.core.Response;
 
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.nuxeo.ecm.core.api.CoreSession;
 import org.nuxeo.ecm.core.bulk.BulkService;
 import org.nuxeo.ecm.core.bulk.CoreBulkFeature;
 import org.nuxeo.ecm.core.bulk.message.BulkCommand;
 import org.nuxeo.ecm.core.test.annotations.Granularity;
 import org.nuxeo.ecm.core.test.annotations.RepositoryConfig;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
-
-import com.fasterxml.jackson.databind.JsonNode;
 
 /**
  * @since 10.3
@@ -48,10 +49,20 @@ import com.fasterxml.jackson.databind.JsonNode;
 @RunWith(FeaturesRunner.class)
 @Features({ CoreBulkFeature.class, RestServerFeature.class })
 @RepositoryConfig(cleanup = Granularity.METHOD, init = RestServerInit.class)
-public class BulkActionFrameworkTest extends BaseTest {
+public class BulkActionFrameworkTest {
 
     @Inject
     protected BulkService bulkService;
+
+    @Inject
+    protected CoreSession session;
+
+    @Inject
+    protected RestServerFeature restServerFeature;
+
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.defaultClient(
+            () -> restServerFeature.getRestApiUrl());
 
     @Test
     public void testGetBulkStatus() throws Exception {
@@ -68,25 +79,20 @@ public class BulkActionFrameworkTest extends BaseTest {
         // compute some variable to assert
         long count = session.query("SELECT * FROM Document WHERE ecm:isVersion = 0", null, 1, 0, true).totalSize();
 
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "bulk/" + commandId, null, null, null,
-                null)) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
+        httpClient.buildGetRequest("bulk/" + commandId).executeAndConsume(new JsonNodeHandler(), node -> {
             assertEquals(count, node.get("total").asLong());
             assertEquals(count, node.get("processed").asLong());
             assertEquals(COMPLETED.name(), node.get("state").asText());
-        }
+        });
     }
 
     @Test
-    public void testGetNonExistingBulkStatus() throws Exception {
+    public void testGetNonExistingBulkStatus() {
         UUID commandId = UUID.randomUUID();
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "bulk/" + commandId, null, null, null,
-                null)) {
-            assertEquals(Response.Status.NOT_FOUND.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals("Bulk command with id=" + commandId + " doesn't exist", node.get("message").asText());
-        }
+        httpClient.buildGetRequest("bulk/" + commandId)
+                  .executeAndConsume(new JsonNodeHandler(SC_NOT_FOUND),
+                          node -> assertEquals("Bulk command with id=" + commandId + " doesn't exist",
+                                  node.get("message").asText()));
     }
 
 }

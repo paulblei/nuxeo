@@ -48,7 +48,7 @@ import com.unboundid.scim.sdk.InvalidResourceException;
  * @since 7.4
  */
 @Provider
-@Consumes({ "application/xml", "application/json" })
+@Consumes({ MediaType.APPLICATION_JSON, MediaType.APPLICATION_XML })
 public class GroupResourceReader implements MessageBodyReader<GroupResource> {
 
     private static final Logger log = LogManager.getLogger(GroupResourceReader.class);

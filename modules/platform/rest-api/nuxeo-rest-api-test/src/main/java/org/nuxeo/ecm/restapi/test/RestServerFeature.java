@@ -18,11 +18,14 @@
  */
 package org.nuxeo.ecm.restapi.test;
 
+import javax.inject.Inject;
+
 import org.nuxeo.ecm.automation.test.AutomationServerFeature;
 import org.nuxeo.ecm.webengine.test.WebEngineFeature;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.RunnerFeature;
+import org.nuxeo.runtime.test.runner.ServletContainerFeature;
 
 /**
  * @since 5.7.2
@@ -37,4 +40,13 @@ import org.nuxeo.runtime.test.runner.RunnerFeature;
 @Deploy("org.nuxeo.ecm.platform.tag")
 public class RestServerFeature implements RunnerFeature {
 
+    @Inject
+    protected ServletContainerFeature servletContainerFeature;
+
+    /**
+     * @since 2023.13
+     */
+    public String getRestApiUrl() {
+        return servletContainerFeature.getHttpUrl() + "/api/v1";
+    }
 }

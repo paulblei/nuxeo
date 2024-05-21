@@ -18,12 +18,15 @@
  */
 package org.nuxeo.ecm.restapi.test;
 
+import static org.apache.http.HttpStatus.SC_FORBIDDEN;
+import static org.apache.http.HttpStatus.SC_NO_CONTENT;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 
 import javax.inject.Inject;
-import javax.ws.rs.core.Response;
+import javax.ws.rs.core.MediaType;
 
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.nuxeo.ecm.core.api.NuxeoGroup;
@@ -32,11 +35,10 @@ import org.nuxeo.ecm.core.test.annotations.RepositoryConfig;
 import org.nuxeo.ecm.platform.usermanager.NuxeoGroupImpl;
 import org.nuxeo.ecm.platform.usermanager.NuxeoPrincipalImpl;
 import org.nuxeo.ecm.platform.usermanager.UserManager;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.HttpStatusCodeHandler;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * @since 5.7.3
@@ -46,38 +48,42 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @RepositoryConfig(init = RestServerInit.class)
 public class UserAndGroupGuardTest extends BaseUserTest {
 
+    protected static final HttpStatusCodeHandler STATUS_CODE_HANDLER = new HttpStatusCodeHandler();
+
     @Inject
     protected UserManager um;
 
-    @Override
-    public void doBefore() {
-        service = getServiceFor("user1", "user1");
-        mapper = new ObjectMapper();
-    }
+    @Inject
+    protected RestServerFeature restServerFeature;
+
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.builder()
+                                                                   .url(() -> restServerFeature.getRestApiUrl())
+                                                                   .credentials("user1", "user1")
+                                                                   .contentType(MediaType.APPLICATION_JSON)
+                                                                   .build();
 
     @Test
     public void onlyAdminCanDeleteAUser() {
         // Given a modified user
 
         // When I call a DELETE on the Rest endpoint
-        try (CloseableClientResponse response = getResponse(RequestType.DELETE, "/user/user2")) {
-
-            // Then it returns a 403
-            assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildDeleteRequest("/user/user2")
+                  .executeAndConsume(STATUS_CODE_HANDLER,
+                          // Then it returns a 403
+                          status -> assertEquals(SC_FORBIDDEN, status.intValue()));
     }
 
     @Test
     public void onlyAdminCanUpdateAUser() throws Exception {
         NuxeoPrincipal user = um.getPrincipal("user1");
 
-        // When i POST this group
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "/user/" + user.getName(),
-                getPrincipalAsJson(user))) {
-
-            // Then it returns a 403
-            assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatus());
-        }
+        // When i PUT this group
+        httpClient.buildPutRequest("/user/" + user.getName())
+                  .entity(getPrincipalAsJson(user))
+                  .executeAndConsume(STATUS_CODE_HANDLER,
+                          // Then it returns a 403
+                          status -> assertEquals(SC_FORBIDDEN, status.intValue()));
     }
 
     @Test
@@ -86,11 +92,11 @@ public class UserAndGroupGuardTest extends BaseUserTest {
         NuxeoPrincipal principal = new NuxeoPrincipalImpl("newuser");
 
         // When i POST it on the user endpoint
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "/user", getPrincipalAsJson(principal))) {
-
-            // Then it returns a 403
-            assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildPostRequest("/user")
+                  .entity(getPrincipalAsJson(principal))
+                  .executeAndConsume(STATUS_CODE_HANDLER,
+                          // Then it returns a 403
+                          status -> assertEquals(SC_FORBIDDEN, status.intValue()));
     }
 
     @Test
@@ -99,11 +105,11 @@ public class UserAndGroupGuardTest extends BaseUserTest {
         NuxeoGroup group = new NuxeoGroupImpl("newGroup");
 
         // When i POST this group
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "/group/", getGroupAsJson(group))) {
-
-            // Then it returns a 403
-            assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildPostRequest("/group/")
+                  .entity(getGroupAsJson(group))
+                  .executeAndConsume(STATUS_CODE_HANDLER,
+                          // Then it returns a 403
+                          status -> assertEquals(SC_FORBIDDEN, status.intValue()));
     }
 
     @Test
@@ -112,22 +118,20 @@ public class UserAndGroupGuardTest extends BaseUserTest {
         NuxeoGroup group = um.getGroup("group1");
 
         // When i POST this group
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "/group/" + group.getName(),
-                getGroupAsJson(group))) {
-
-            // Then it returns a 401
-            assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildPutRequest("/group/" + group.getName())
+                  .entity(getGroupAsJson(group))
+                  .executeAndConsume(STATUS_CODE_HANDLER,
+                          // Then it returns a 403
+                          status -> assertEquals(SC_FORBIDDEN, status.intValue()));
     }
 
     @Test
     public void onlyAdminCanDeleteGroups() {
         // When i DELETE this group
-        try (CloseableClientResponse response = getResponse(RequestType.DELETE, "/group/group1")) {
-
-            // Then it returns a 403
-            assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildDeleteRequest("/group/group1")
+                  .executeAndConsume(STATUS_CODE_HANDLER,
+                          // Then it returns a 403
+                          status -> assertEquals(SC_FORBIDDEN, status.intValue()));
     }
 
     @Test
@@ -137,12 +141,11 @@ public class UserAndGroupGuardTest extends BaseUserTest {
         NuxeoPrincipal principal = um.getPrincipal("user1");
 
         // When i POST this group
-        try (CloseableClientResponse response = getResponse(RequestType.POST,
-                "/group/" + group.getName() + "/user/" + principal.getName(), getGroupAsJson(group))) {
-
-            // Then it returns a 403
-            assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildPostRequest("/group/" + group.getName() + "/user/" + principal.getName())
+                  .entity(getGroupAsJson(group))
+                  .executeAndConsume(STATUS_CODE_HANDLER,
+                          // Then it returns a 403
+                          status -> assertEquals(SC_FORBIDDEN, status.intValue()));
     }
 
     @Test
@@ -152,46 +155,46 @@ public class UserAndGroupGuardTest extends BaseUserTest {
         NuxeoPrincipal principal = um.getPrincipal("user1");
 
         // When i DELETE this group
-        try (CloseableClientResponse response = getResponse(RequestType.DELETE,
-                "/group/" + group.getName() + "/user/" + principal.getName())) {
-
-            // Then it returns a 403
-            assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildDeleteRequest("/group/" + group.getName() + "/user/" + principal.getName())
+                  .executeAndConsume(STATUS_CODE_HANDLER,
+                          // Then it returns a 403
+                          status -> assertEquals(SC_FORBIDDEN, status.intValue()));
     }
 
     @Test
     public void powerUserCantDeleteAdminArtifacts() {
         // Given a power user
         NuxeoPrincipal principal = RestServerInit.getPowerUser();
-        service = getServiceFor(principal.getName(), principal.getName());
 
         // When i try to delete admin user
-        try (CloseableClientResponse response = getResponse(RequestType.DELETE, "/user/Administrator")) {
-            // Then it returns a 403
-            assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildDeleteRequest("/user/Administrator")
+                  .credentials(principal.getName(), principal.getName())
+                  .executeAndConsume(STATUS_CODE_HANDLER,
+                          // Then it returns a 403
+                          status -> assertEquals(SC_FORBIDDEN, status.intValue()));
 
         // When i try to delete admin user
-        try (CloseableClientResponse response = getResponse(RequestType.DELETE, "/group/administrators")) {
-            // Then it returns a 403
-            assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildDeleteRequest("/group/administrators")
+                  .credentials(principal.getName(), principal.getName())
+                  .executeAndConsume(STATUS_CODE_HANDLER,
+                          // Then it returns a 403
+                          status -> assertEquals(SC_FORBIDDEN, status.intValue()));
     }
 
     @Test
     public void powerUserCanDeleteNonAdminArtifacts() {
         // Given a power user
         NuxeoPrincipal principal = RestServerInit.getPowerUser();
-        service = getServiceFor(principal.getName(), principal.getName());
 
         // When i try to delete admin user
-        try (CloseableClientResponse response = getResponse(RequestType.DELETE, "/user/user2")) {
-            // Then it returns a NO_CONTENT response
-            assertEquals(Response.Status.NO_CONTENT.getStatusCode(), response.getStatus());
+        httpClient.buildDeleteRequest("/user/user2")
+                  .credentials(principal.getName(), principal.getName())
+                  .executeAndConsume(STATUS_CODE_HANDLER, status -> {
+                      // Then it returns a NO_CONTENT response
+                      assertEquals(SC_NO_CONTENT, status.intValue());
 
-            assertNull(um.getPrincipal("user2"));
-        }
+                      assertNull(um.getPrincipal("user2"));
+                  });
     }
 
 }

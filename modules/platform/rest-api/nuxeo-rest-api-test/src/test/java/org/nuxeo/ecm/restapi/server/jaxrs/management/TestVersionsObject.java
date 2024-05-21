@@ -19,15 +19,12 @@
 
 package org.nuxeo.ecm.restapi.server.jaxrs.management;
 
-import static javax.servlet.http.HttpServletResponse.SC_OK;
 import static org.junit.Assert.assertEquals;
 import static org.nuxeo.ecm.core.bulk.io.BulkConstants.STATUS_ERROR_COUNT;
 import static org.nuxeo.ecm.core.bulk.io.BulkConstants.STATUS_HAS_ERROR;
 import static org.nuxeo.ecm.core.bulk.io.BulkConstants.STATUS_PROCESSED;
 import static org.nuxeo.ecm.core.bulk.io.BulkConstants.STATUS_SKIP_COUNT;
 import static org.nuxeo.ecm.core.bulk.io.BulkConstants.STATUS_TOTAL;
-
-import java.io.IOException;
 
 import javax.inject.Inject;
 
@@ -43,11 +40,9 @@ import org.nuxeo.ecm.core.api.VersioningOption;
 import org.nuxeo.ecm.core.model.stream.StreamDocumentGC;
 import org.nuxeo.ecm.core.test.CoreFeature;
 import org.nuxeo.ecm.restapi.test.ManagementBaseTest;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.WithFrameworkProperty;
-
-import com.fasterxml.jackson.databind.JsonNode;
 
 /**
  * @since 2023
@@ -60,7 +55,7 @@ public class TestVersionsObject extends ManagementBaseTest {
     protected CoreSession session;
 
     @Inject
-    CoreFeature coreFeature;
+    protected CoreFeature coreFeature;
 
     protected int nbVersions = 10;
 
@@ -71,7 +66,7 @@ public class TestVersionsObject extends ManagementBaseTest {
     }
 
     @Before
-    public void createDocuments() throws IOException {
+    public void createDocuments() {
         DocumentModel ws = session.createDocumentModel("/", "ws", "Workspace");
         ws = session.createDocument(ws);
         folder = session.createDocumentModel("/ws", "folder", "Folder");
@@ -107,7 +102,7 @@ public class TestVersionsObject extends ManagementBaseTest {
     }
 
     @Test
-    public void testGCOrphanVersions() throws IOException {
+    public void testGCOrphanVersions() {
         DocumentModelList vs = getVersion();
         int nbTotalVersions = (nbVersions + 1) + 2 + 2;
 
@@ -130,31 +125,24 @@ public class TestVersionsObject extends ManagementBaseTest {
         assertEquals(2 + 2, vs.size());
     }
 
-    protected void doGCVersions(boolean success, int processed, int skipped, int errorCount, int total)
-            throws IOException {
-        String commandId;
-        try (CloseableClientResponse response = httpClientRule.delete("/management/versions/orphaned")) {
-            assertEquals(SC_OK, response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-
-            assertBulkStatusScheduled(node);
-            commandId = getBulkCommandId(node);
-        }
+    protected void doGCVersions(boolean success, int processed, int skipped, int errorCount, int total) {
+        String commandId = httpClient.buildDeleteRequest("/management/versions/orphaned")
+                                     .executeAndThen(new JsonNodeHandler(), node -> {
+                                         assertBulkStatusScheduled(node);
+                                         return getBulkCommandId(node);
+                                     });
 
         // waiting for the asynchronous gc
         coreFeature.waitForAsyncCompletion();
 
-        try (CloseableClientResponse response = httpClientRule.get("/management/bulk/" + commandId)) {
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals(SC_OK, response.getStatus());
-
+        httpClient.buildGetRequest("/management/bulk/" + commandId).executeAndConsume(new JsonNodeHandler(), node -> {
             assertBulkStatusCompleted(node);
             assertEquals(!success, node.get(STATUS_HAS_ERROR).asBoolean());
             assertEquals(processed, node.get(STATUS_PROCESSED).asInt());
             assertEquals(skipped, node.get(STATUS_SKIP_COUNT).asInt());
             assertEquals(errorCount, node.get(STATUS_ERROR_COUNT).asInt());
             assertEquals(total, node.get(STATUS_TOTAL).asInt());
-        }
+        });
     }
 
 }

@@ -20,7 +20,6 @@
 package org.nuxeo.ecm.restapi.server.jaxrs.management;
 
 import static javax.servlet.http.HttpServletResponse.SC_NOT_IMPLEMENTED;
-import static javax.servlet.http.HttpServletResponse.SC_OK;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -39,7 +38,6 @@ import static org.nuxeo.ecm.core.bulk.io.BulkConstants.STATUS_RESULT;
 import static org.nuxeo.ecm.core.bulk.io.BulkConstants.STATUS_SKIP_COUNT;
 import static org.nuxeo.ecm.core.bulk.io.BulkConstants.STATUS_TOTAL;
 
-import java.io.IOException;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
@@ -59,14 +57,13 @@ import org.nuxeo.ecm.core.blob.scroll.RepositoryBlobScroll;
 import org.nuxeo.ecm.core.scroll.GenericScrollRequest;
 import org.nuxeo.ecm.core.test.CoreFeature;
 import org.nuxeo.ecm.restapi.test.ManagementBaseTest;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.handler.HttpStatusCodeHandler;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.management.ManagementFeature;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
 import org.nuxeo.runtime.test.runner.WithFrameworkProperty;
-
-import com.fasterxml.jackson.databind.JsonNode;
 
 /**
  * @since 2023
@@ -90,13 +87,13 @@ public class TestBlobsObject extends ManagementBaseTest {
 
     @Test
     @Deploy("org.nuxeo.ecm.core.test:OSGI-INF/test-storage-blobstore-contrib.xml")
-    public void testDeleteOrphanedBlobs() throws IOException {
+    public void testDeleteOrphanedBlobs() {
         testDeleteOrphanedBlobs(false);
     }
 
     @Test
     @Deploy("org.nuxeo.ecm.core.test:OSGI-INF/test-storage-blobstore-contrib.xml")
-    public void testDryRunDeleteOrphanedBlobs() throws IOException {
+    public void testDryRunDeleteOrphanedBlobs() {
         testDeleteOrphanedBlobs(true);
     }
 
@@ -115,12 +112,12 @@ public class TestBlobsObject extends ManagementBaseTest {
     }
 
     protected void assertdoGCNotImplemented() {
-        try (CloseableClientResponse response = httpClientRule.delete("/management/blobs/orphaned")) {
-            assertEquals(SC_NOT_IMPLEMENTED, response.getStatus());
-        }
+        httpClient.buildDeleteRequest("/management/blobs/orphaned")
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_NOT_IMPLEMENTED, status.intValue()));
     }
 
-    protected void testDeleteOrphanedBlobs(boolean dryRun) throws IOException {
+    protected void testDeleteOrphanedBlobs(boolean dryRun) {
         assumeTrue("MongoDB feature only", coreFeature.getStorageConfiguration().isDBS());
         // Create a file document with some blobs
         DocumentModel document = session.createDocumentModel("/", "myFile", "File");
@@ -148,23 +145,17 @@ public class TestBlobsObject extends ManagementBaseTest {
     }
 
     protected void doGC(boolean dryRun, boolean success, int skipped, long deletedSize, int processed, long totalSize,
-            int errorCount, int total) throws IOException {
-        String commandId;
-        try (CloseableClientResponse response = httpClientRule.delete(
-                "/management/blobs/orphaned?" + DRY_RUN_PARAM + "=" + dryRun)) {
-            assertEquals(SC_OK, response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-
-            assertBulkStatusScheduled(node);
-            commandId = getBulkCommandId(node);
-        }
+            int errorCount, int total) {
+        String commandId = httpClient.buildDeleteRequest("/management/blobs/orphaned?" + DRY_RUN_PARAM + "=" + dryRun)
+                                     .executeAndThen(new JsonNodeHandler(), node -> {
+                                         assertBulkStatusScheduled(node);
+                                         return getBulkCommandId(node);
+                                     });
 
         // waiting for the asynchronous gc
         coreFeature.waitForAsyncCompletion();
 
-        try (CloseableClientResponse response = httpClientRule.get("/management/bulk/" + commandId)) {
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals(SC_OK, response.getStatus());
+        httpClient.buildGetRequest("/management/bulk/" + commandId).executeAndConsume(new JsonNodeHandler(), node -> {
             assertBulkStatusCompleted(node);
             assertEquals(!success, node.get(STATUS_HAS_ERROR).asBoolean());
             assertEquals(skipped, node.get(STATUS_SKIP_COUNT).asInt());
@@ -174,7 +165,7 @@ public class TestBlobsObject extends ManagementBaseTest {
             assertEquals(dryRun, node.get(STATUS_RESULT).get(DRY_RUN_PARAM).asBoolean());
             assertEquals(errorCount, node.get(STATUS_ERROR_COUNT).asInt());
             assertEquals(total, node.get(STATUS_TOTAL).asInt());
-        }
+        });
         // Check at blob store level
         assertEquals(dryRun ? NB_BLOBS : skipped, getBlobCount());
     }

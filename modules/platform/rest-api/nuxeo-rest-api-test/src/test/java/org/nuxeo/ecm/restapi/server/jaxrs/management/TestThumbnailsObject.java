@@ -19,7 +19,6 @@
 
 package org.nuxeo.ecm.restapi.server.jaxrs.management;
 
-import static javax.servlet.http.HttpServletResponse.SC_OK;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -32,9 +31,9 @@ import static org.nuxeo.ecm.core.bulk.io.BulkConstants.STATUS_TOTAL;
 import java.io.IOException;
 import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 
 import javax.inject.Inject;
-import javax.ws.rs.core.MultivaluedMap;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -48,12 +47,9 @@ import org.nuxeo.ecm.core.api.DocumentRef;
 import org.nuxeo.ecm.core.api.thumbnail.ThumbnailService;
 import org.nuxeo.ecm.platform.thumbnail.ThumbnailConstants;
 import org.nuxeo.ecm.restapi.test.ManagementBaseTest;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.sun.jersey.core.util.MultivaluedMapImpl;
 
 /**
  * @since 11.3
@@ -87,44 +83,37 @@ public class TestThumbnailsObject extends ManagementBaseTest {
     }
 
     @Test
-    public void testRecomputeThumbnailsNoQuery() throws IOException {
+    public void testRecomputeThumbnailsNoQuery() {
         doTestRecomputeThumbnails(null, true);
     }
 
     @Test
-    public void testRecomputeThumbnailsValidQuery() throws IOException {
+    public void testRecomputeThumbnailsValidQuery() {
         String query = "SELECT * FROM Document WHERE ecm:mixinType = 'Thumbnail'";
         doTestRecomputeThumbnails(query, true);
     }
 
     @Test
-    public void testRecomputeThumbnailsInvalidQuery() throws IOException {
+    public void testRecomputeThumbnailsInvalidQuery() {
         String query = "SELECT * FROM nowhere";
         doTestRecomputeThumbnails(query, false);
     }
 
-    protected void doTestRecomputeThumbnails(String query, boolean success) throws IOException {
+    protected void doTestRecomputeThumbnails(String query, boolean success) {
         // generating new thumbnails
-        MultivaluedMap<String, String> formData = new MultivaluedMapImpl();
+        var requestBuilder = httpClient.buildPostRequest("/management/thumbnails/recompute");
         if (query != null) {
-            formData.add("query", query);
+            requestBuilder.entity(Map.of("query", query));
         }
-        String commandId;
-        try (CloseableClientResponse response = httpClientRule.post("/management/thumbnails/recompute", formData)) {
-            assertEquals(SC_OK, response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-
+        String commandId = requestBuilder.executeAndThen(new JsonNodeHandler(), node -> {
             assertBulkStatusScheduled(node);
-            commandId = getBulkCommandId(node);
-        }
+            return getBulkCommandId(node);
+        });
 
         // waiting for the asynchronous thumbnails recompute task
         txFeature.nextTransaction();
 
-        try (CloseableClientResponse response = httpClientRule.get("/management/bulk/" + commandId)) {
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals(SC_OK, response.getStatus());
-
+        httpClient.buildGetRequest("/management/bulk/" + commandId).executeAndConsume(new JsonNodeHandler(), node -> {
             assertBulkStatusCompleted(node);
             if (success) {
                 assertEquals(1, node.get(STATUS_PROCESSED).asInt());
@@ -138,7 +127,7 @@ public class TestThumbnailsObject extends ManagementBaseTest {
                 assertEquals(0, node.get(STATUS_TOTAL).asInt());
                 assertEquals("Invalid query", node.get(STATUS_ERROR_MESSAGE).asText());
             }
-        }
+        });
 
         DocumentModel doc = session.getDocument(docRef);
         Blob thumbnail = thumbnailService.getThumbnail(doc, session);

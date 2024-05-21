@@ -27,7 +27,6 @@ import static org.nuxeo.ecm.collections.api.CollectionConstants.COLLECTION_TYPE;
 import static org.nuxeo.ecm.platform.dublincore.constants.DublinCoreConstants.DUBLINCORE_TITLE_PROPERTY;
 import static org.nuxeo.ecm.platform.tag.TagConstants.TAG_FACET;
 
-import java.io.IOException;
 import java.io.Serializable;
 import java.util.HashMap;
 import java.util.List;
@@ -36,15 +35,16 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.StreamSupport;
 
 import javax.inject.Inject;
-import javax.ws.rs.core.Response;
 
 import org.junit.Assert;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.nuxeo.directory.test.DirectoryFeature;
 import org.nuxeo.ecm.automation.jaxrs.io.documents.PaginableDocumentModelListImpl;
 import org.nuxeo.ecm.core.api.Blob;
 import org.nuxeo.ecm.core.api.Blobs;
+import org.nuxeo.ecm.core.api.CoreSession;
 import org.nuxeo.ecm.core.api.DocumentModel;
 import org.nuxeo.ecm.core.test.annotations.Granularity;
 import org.nuxeo.ecm.core.test.annotations.RepositoryConfig;
@@ -55,7 +55,7 @@ import org.nuxeo.ecm.platform.query.api.PageProviderService;
 import org.nuxeo.ecm.platform.query.nxql.CoreQueryDocumentPageProvider;
 import org.nuxeo.ecm.restapi.server.jaxrs.QueryObject;
 import org.nuxeo.ecm.restapi.server.jaxrs.adapters.SearchAdapter;
-import org.nuxeo.ecm.restapi.test.BaseTest;
+import org.nuxeo.ecm.restapi.test.JsonNodeHelper;
 import org.nuxeo.ecm.restapi.test.RestServerFeature;
 import org.nuxeo.ecm.restapi.test.RestServerInit;
 import org.nuxeo.elasticsearch.api.ElasticSearchAdmin;
@@ -63,7 +63,8 @@ import org.nuxeo.elasticsearch.io.marshallers.json.AggregateJsonWriter;
 import org.nuxeo.elasticsearch.provider.ElasticSearchNativePageProvider;
 import org.nuxeo.elasticsearch.provider.ElasticSearchNxqlPageProvider;
 import org.nuxeo.elasticsearch.test.RepositoryElasticSearchFeature;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.api.Framework;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
@@ -88,7 +89,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 @Deploy("org.nuxeo.elasticsearch.core:pageprovider-search-test-contrib.xml")
 @Deploy("org.nuxeo.elasticsearch.core:test-directory-contrib.xml")
 @RepositoryConfig(cleanup = Granularity.METHOD, init = RestServerInit.class)
-public class RestESDocumentsTest extends BaseTest {
+public class RestESDocumentsTest {
 
     public static final String QUERY = "select * from Document where " + "ecm:isTrashed = 0";
 
@@ -105,27 +106,32 @@ public class RestESDocumentsTest extends BaseTest {
     protected static final String COLLECTION_NAME = "testCollection";
 
     @Inject
+    protected CoreSession session;
+
+    @Inject
     protected PageProviderService pageProviderService;
+
+    @Inject
+    protected RestServerFeature restServerFeature;
 
     @Inject
     protected TransactionalFeature txFeature;
 
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.defaultClient(
+            () -> restServerFeature.getRestApiUrl());
+
     @Test
-    public void iCanPerformESQLPageProviderOnRepository() throws IOException, InterruptedException {
+    public void iCanPerformESQLPageProviderOnRepository() throws InterruptedException {
         // wait for async jobs
         waitForAsync();
         // Given a repository, when I perform a ESQL pageprovider on it
-        try (CloseableClientResponse response = getResponse(RequestType.GET, QueryObject.PATH + "/aggregates_2")) {
-
-            // Then I get document listing as result
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            // Verify results
-            assertEquals(20, getEntries(node).size());
-            // And verify contributed aggregates
-            assertEquals("terms", node.get("aggregations").get("coverage").get("type").textValue());
-        }
+        JsonNode node = httpClient.buildGetRequest(QueryObject.PATH + "/aggregates_2").execute(new JsonNodeHandler());
+        // Then I get document listing as result
+        // Verify results
+        assertEquals(20, JsonNodeHelper.getEntries(node).size());
+        // And verify contributed aggregates
+        assertEquals("terms", node.get("aggregations").get("coverage").get("type").textValue());
     }
 
     /**
@@ -189,9 +195,6 @@ public class RestESDocumentsTest extends BaseTest {
     @Test
     public void iCanQueryESQLPageProviderAndFetchAggregateKeys() throws Exception {
         // Updating a note automatically creates a version of it
-
-        Map<String, String> headers = new HashMap<>();
-        headers.put("fetch." + AggregateJsonWriter.ENTITY_TYPE, AggregateJsonWriter.FETCH_KEY);
         for (int i = 0; i < RestServerInit.MAX_NOTE; i++) {
             DocumentModel doc = RestServerInit.getNote(i, session);
             doc.setPropertyValue("dc:coverage", "europe/France");
@@ -204,74 +207,64 @@ public class RestESDocumentsTest extends BaseTest {
         waitForAsync();
 
         // Given a repository, when I perform a ESQL pageprovider on it
-        try (CloseableClientResponse response = getResponse(RequestType.GET, QueryObject.PATH + "/aggregates_3", null,
-                null, null, headers)) {
+        JsonNode node = httpClient.buildGetRequest(QueryObject.PATH + "/aggregates_3")
+                                  .addHeader("fetch." + AggregateJsonWriter.ENTITY_TYPE, AggregateJsonWriter.FETCH_KEY)
+                                  .execute(new JsonNodeHandler());
+        // Then I get document listing as result
+        // And verify contributed aggregates
+        assertEquals("terms", node.get("aggregations").get("coverage").get("type").textValue());
+        JsonNode bucket = node.get("aggregations").get("coverage").get("buckets").get(0);
+        int docCount = bucket.get("docCount").intValue();
+        assertEquals(RestServerInit.MAX_NOTE, docCount);
+        // Check that the key of the bucket which is a l10ncoverage vocabulary entry has been fetch
+        String keyText = bucket.get("key").textValue();
+        assertEquals("europe/France", keyText);
+        String fetchedkeyIdText = bucket.get("fetchedKey").get("properties").get("id").textValue();
+        assertEquals("France", fetchedkeyIdText);
 
-            // Then I get document listing as result
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        // And verify contributed aggregates
+        assertEquals("terms", node.get("aggregations").get("subjects").get("type").textValue());
+        JsonNode firstBucket = node.get("aggregations").get("subjects").get("buckets").get(0);
+        docCount = firstBucket.get("docCount").intValue();
+        assertEquals(RestServerInit.MAX_NOTE, docCount);
+        // Check that the key of the bucket which is a l10nsubjects vocabulary entry has been fetch
+        keyText = firstBucket.get("key").textValue();
+        assertEquals("art/cinema", keyText);
+        fetchedkeyIdText = firstBucket.get("fetchedKey").get("properties").get("id").textValue();
+        assertEquals("cinema", fetchedkeyIdText);
 
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
+        JsonNode primaryTypeNode = node.get("aggregations").get("primaryType");
+        assertEquals("terms", primaryTypeNode.get("type").textValue());
+        JsonNode noteTypeNode = StreamSupport.stream(primaryTypeNode.get("buckets").spliterator(), false)
+                                             .filter(n -> "Note".equals(n.get("key").textValue()))
+                                             .findFirst()
+                                             .orElse(null);
+        assertNotNull(noteTypeNode);
 
-            // And verify contributed aggregates
-            assertEquals("terms", node.get("aggregations").get("coverage").get("type").textValue());
-            JsonNode bucket = node.get("aggregations").get("coverage").get("buckets").get(0);
-            int docCount = bucket.get("docCount").intValue();
-            assertEquals(RestServerInit.MAX_NOTE, docCount);
-            // Check that the key of the bucket which is a l10ncoverage vocabulary entry has been fetch
-            String keyText = bucket.get("key").textValue();
-            assertEquals("europe/France", keyText);
-            String fetchedkeyIdText = bucket.get("fetchedKey").get("properties").get("id").textValue();
-            assertEquals("France", fetchedkeyIdText);
+        JsonNode isVersionNode = node.get("aggregations").get("isVersion");
+        assertEquals("terms", isVersionNode.get("type").textValue());
 
-            // And verify contributed aggregates
-            assertEquals("terms", node.get("aggregations").get("subjects").get("type").textValue());
-            JsonNode firstBucket = node.get("aggregations").get("subjects").get("buckets").get(0);
-            docCount = firstBucket.get("docCount").intValue();
-            assertEquals(RestServerInit.MAX_NOTE, docCount);
-            // Check that the key of the bucket which is a l10nsubjects vocabulary entry has been fetch
-            keyText = firstBucket.get("key").textValue();
-            assertEquals("art/cinema", keyText);
-            fetchedkeyIdText = firstBucket.get("fetchedKey").get("properties").get("id").textValue();
-            assertEquals("cinema", fetchedkeyIdText);
+        JsonNode mixinTypeNode = node.get("aggregations").get("mixinType");
+        assertEquals("terms", mixinTypeNode.get("type").textValue());
+        JsonNode tagFacetNode = StreamSupport.stream(mixinTypeNode.get("buckets").spliterator(), false)
+                                             .filter(n -> TAG_FACET.equals(n.get("key").textValue()))
+                                             .findFirst()
+                                             .orElse(null);
+        assertNotNull(tagFacetNode);
 
-            JsonNode primaryTypeNode = node.get("aggregations").get("primaryType");
-            assertEquals("terms", primaryTypeNode.get("type").textValue());
-            JsonNode noteTypeNode = StreamSupport.stream(primaryTypeNode.get("buckets").spliterator(), false)
-                                                 .filter(n -> "Note".equals(n.get("key").textValue()))
-                                                 .findFirst()
-                                                 .orElse(null);
-            assertNotNull(noteTypeNode);
-
-            JsonNode isVersionNode = node.get("aggregations").get("isVersion");
-            assertEquals("terms", isVersionNode.get("type").textValue());
-
-            JsonNode mixinTypeNode = node.get("aggregations").get("mixinType");
-            assertEquals("terms", mixinTypeNode.get("type").textValue());
-            JsonNode tagFacetNode = StreamSupport.stream(mixinTypeNode.get("buckets").spliterator(), false)
-                                                 .filter(n -> TAG_FACET.equals(n.get("key").textValue()))
-                                                 .findFirst()
-                                                 .orElse(null);
-            assertNotNull(tagFacetNode);
-
-            JsonNode level1Node = node.get("aggregations").get("level1");
-            assertEquals("terms", level1Node.get("type").textValue());
-            JsonNode noteLevel1Node = StreamSupport.stream(level1Node.get("buckets").spliterator(), false)
-                                                   .filter(n -> "folder_1".equals(n.get("key").textValue()))
-                                                   .findFirst()
-                                                   .orElse(null);
-            assertNotNull(noteLevel1Node);
-
-        }
+        JsonNode level1Node = node.get("aggregations").get("level1");
+        assertEquals("terms", level1Node.get("type").textValue());
+        JsonNode noteLevel1Node = StreamSupport.stream(level1Node.get("buckets").spliterator(), false)
+                                               .filter(n -> "folder_1".equals(n.get("key").textValue()))
+                                               .findFirst()
+                                               .orElse(null);
+        assertNotNull(noteLevel1Node);
 
         // Test invalid system property as page provider aggregate
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                QueryObject.PATH + "/invalid_system_prop_aggregate", null, null, null, headers)) {
-
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertNull(node.get("aggregations").get("path").get("buckets"));
-        }
-
+        httpClient.buildGetRequest(QueryObject.PATH + "/invalid_system_prop_aggregate")
+                  .addHeader("fetch." + AggregateJsonWriter.ENTITY_TYPE, AggregateJsonWriter.FETCH_KEY)
+                  .executeAndConsume(new JsonNodeHandler(),
+                          jsonNode -> assertNull(jsonNode.get("aggregations").get("path").get("buckets")));
     }
 
     /**
@@ -311,26 +304,20 @@ public class RestESDocumentsTest extends BaseTest {
         TransactionHelper.startTransaction();
         waitForAsync();
 
-        Map<String, String> headers = new HashMap<>();
-        headers.put("fetch." + AggregateJsonWriter.ENTITY_TYPE, AggregateJsonWriter.FETCH_KEY);
-
-        try (CloseableClientResponse response = getResponse(RequestType.GET, QueryObject.PATH + "/aggregates_4", null,
-                null, null, headers)) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            JsonNode aggregations = node.get("aggregations");
-            assertEquals(258, aggregations.get("sum").get("value").intValue());
-            assertEquals("25.8", aggregations.get("avg").get("value").asText());
-            assertEquals("0.0", aggregations.get("min").get("value").asText());
-            assertEquals("0.0", aggregations.get("max").get("value").asText());
-            assertEquals(17, aggregations.get("count_desc").get("value").intValue());
-            assertEquals(50, aggregations.get("count_title").get("value").intValue());
-            assertEquals(40, aggregations.get("missing_content_length").get("value").intValue());
-            assertEquals(33, aggregations.get("missing_description").get("value").intValue());
-            assertEquals(0, aggregations.get("missing_title").get("value").intValue());
-            assertEquals(2, aggregations.get("cardinality_title").get("value").intValue());
-            assertEquals(4, aggregations.get("cardinality_description").get("value").intValue());
-        }
+        JsonNode node = httpClient.buildGetRequest(QueryObject.PATH + "/aggregates_4")
+                                  .addHeader("fetch." + AggregateJsonWriter.ENTITY_TYPE, AggregateJsonWriter.FETCH_KEY)
+                                  .execute(new JsonNodeHandler());
+        JsonNode aggregations = node.get("aggregations");
+        assertEquals(258, aggregations.get("sum").get("value").intValue());
+        assertEquals("25.8", aggregations.get("avg").get("value").asText());
+        assertEquals("0.0", aggregations.get("min").get("value").asText());
+        assertEquals("0.0", aggregations.get("max").get("value").asText());
+        assertEquals(17, aggregations.get("count_desc").get("value").intValue());
+        assertEquals(50, aggregations.get("count_title").get("value").intValue());
+        assertEquals(40, aggregations.get("missing_content_length").get("value").intValue());
+        assertEquals(33, aggregations.get("missing_description").get("value").intValue());
+        assertEquals(0, aggregations.get("missing_title").get("value").intValue());
+        assertEquals(2, aggregations.get("cardinality_title").get("value").intValue());
+        assertEquals(4, aggregations.get("cardinality_description").get("value").intValue());
     }
 }

@@ -18,19 +18,14 @@
  */
 package org.nuxeo.ecm.restapi.server.jaxrs.management;
 
-import static javax.servlet.http.HttpServletResponse.SC_OK;
 import static org.junit.Assert.assertEquals;
-
-import java.io.IOException;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.nuxeo.ecm.restapi.test.ManagementBaseTest;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
-
-import com.fasterxml.jackson.databind.JsonNode;
 
 /**
  * @since 11.3
@@ -40,13 +35,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 public class TestWorkManagerObject extends ManagementBaseTest {
 
     @Test
-    public void testRunWorksInFailure() throws IOException {
-        try (CloseableClientResponse response = httpClientRule.post("/management/work-manager/run-works-in-failure",
-                null)) {
-            assertEquals(SC_OK, response.getStatus());
-            JsonNode result = mapper.readTree(response.getEntityInputStream());
-            assertEquals(0, result.get("total").asInt());
-            assertEquals(0, result.get("success").asInt());
-        }
+    public void testRunWorksInFailure() {
+        httpClient.buildPostRequest("/management/work-manager/run-works-in-failure")
+                  .executeAndConsume(new JsonNodeHandler(), result -> {
+                      assertEquals(0, result.get("total").asInt());
+                      assertEquals(0, result.get("success").asInt());
+                  });
     }
 }

@@ -35,6 +35,6 @@ import org.nuxeo.transientstore.test.InMemoryTransientStoreFeature;
 @RunWith(ContributableFeaturesRunner.class)
 @Features(InMemoryTransientStoreFeature.class)
 @SuiteClasses(BatchUploadFixture.class)
-public class BatchUploadTest extends BaseTest {
+public class BatchUploadTest {
 
 }

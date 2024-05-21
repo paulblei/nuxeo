@@ -20,23 +20,19 @@
 package org.nuxeo.ecm.restapi.test;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
 
-import java.io.IOException;
-
+import javax.inject.Inject;
 import javax.ws.rs.core.MediaType;
 
+import org.junit.Assert;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
-import org.nuxeo.jaxrs.test.JerseyClientHelper;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.sun.jersey.api.client.Client;
-import com.sun.jersey.api.client.ClientResponse;
 
 /**
  * @since 9.3
@@ -44,46 +40,37 @@ import com.sun.jersey.api.client.ClientResponse;
 @RunWith(FeaturesRunner.class)
 @Features({ RestServerFeature.class })
 @Deploy("org.nuxeo.ecm.platform.restapi.test.test")
-public class MarshallingEdgeCasesTest extends BaseTest {
+public class MarshallingEdgeCasesTest {
+
+    @Inject
+    protected RestServerFeature restServerFeature;
+
+    @Rule
+    public final HttpClientTestRule unauthenticatedHttpClient = HttpClientTestRule.builder()
+                                                                                  .url(() -> restServerFeature.getRestApiUrl())
+                                                                                  .accept(MediaType.APPLICATION_JSON)
+                                                                                  .build();
 
     @Test
-    public void unauthenticatedEndpointShouldReturnJSON() throws IOException {
-        Client client = JerseyClientHelper.clientBuilder().build();
-        ClientResponse response = client.resource(getRestApiUrl())
-                                        .path("foo")
-                                        .path("unauthenticated")
-                                        .accept(MediaType.APPLICATION_JSON)
-                                        .get(ClientResponse.class);
-        try (CloseableClientResponse r = CloseableClientResponse.of(response)) {
-            assertEquals(200, r.getStatus());
-            JsonNode node = mapper.readTree(r.getEntityInputStream());
-            assertEquals("bar", node.get("foo").textValue());
-        }
+    public void unauthenticatedEndpointShouldReturnJSON() {
+        unauthenticatedHttpClient.buildGetRequest("/foo/unauthenticated")
+                                 .executeAndConsume(new JsonNodeHandler(),
+                                         node -> assertEquals("bar", node.get("foo").textValue()));
     }
 
     @Test
-    public void rollbackedtransactionShouldStillReturnJSON() throws IOException {
-        try (CloseableClientResponse r = getResponse(RequestType.GET, "foo/rollback")) {
-            assertEquals(200, r.getStatus());
-            JsonNode node = mapper.readTree(r.getEntityInputStream());
-            assertEquals("bar", node.get("foo").textValue());
-        }
+    public void rollbackedTransactionShouldStillReturnJSON() {
+        unauthenticatedHttpClient.buildGetRequest("/foo/rollback")
+                                 .credentials("Administrator", "Administrator")
+                                 .executeAndConsume(new JsonNodeHandler(),
+                                         node -> assertEquals("bar", node.get("foo").textValue()));
     }
 
     // NXP-30854
     @Test
-    public void unauthenticatedEndpointShouldReturnDocument() throws IOException {
-        Client client = JerseyClientHelper.clientBuilder().build();
-        ClientResponse response = client.resource(getRestApiUrl())
-                                        .path("foo")
-                                        .path("unauthenticated/doc")
-                                        .accept(MediaType.APPLICATION_JSON)
-                                        .get(ClientResponse.class);
-        try (CloseableClientResponse r = CloseableClientResponse.of(response)) {
-            assertEquals(200, r.getStatus());
-            JsonNode node = mapper.readTree(r.getEntityInputStream());
-            assertNotNull(node);
-        }
+    public void unauthenticatedEndpointShouldReturnDocument() {
+        unauthenticatedHttpClient.buildGetRequest("/foo/unauthenticated/doc")
+                                 .executeAndConsume(new JsonNodeHandler(), Assert::assertNotNull);
     }
 
 }

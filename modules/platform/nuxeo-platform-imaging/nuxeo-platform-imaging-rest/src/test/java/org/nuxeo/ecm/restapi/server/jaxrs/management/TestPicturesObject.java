@@ -20,7 +20,6 @@
 
 package org.nuxeo.ecm.restapi.server.jaxrs.management;
 
-import static javax.servlet.http.HttpServletResponse.SC_OK;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -36,9 +35,10 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 import javax.inject.Inject;
-import javax.ws.rs.core.MultivaluedMap;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -52,12 +52,9 @@ import org.nuxeo.ecm.platform.picture.PictureViewsHelper;
 import org.nuxeo.ecm.platform.picture.core.ImagingFeature;
 import org.nuxeo.ecm.platform.picture.listener.PictureViewsGenerationListener;
 import org.nuxeo.ecm.restapi.test.ManagementBaseTest;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.sun.jersey.core.util.MultivaluedMapImpl;
 
 /**
  * @since 11.3
@@ -89,45 +86,36 @@ public class TestPicturesObject extends ManagementBaseTest {
     }
 
     @Test
-    public void testRecomputePicturesNoQuery() throws IOException {
+    public void testRecomputePicturesNoQuery() {
         doTestRecomputePictures(null, true);
     }
 
     @Test
-    public void testRecomputePicturesValidQuery() throws IOException {
+    public void testRecomputePicturesValidQuery() {
         String query = "SELECT * FROM Document WHERE ecm:mixinType = 'Picture'";
         doTestRecomputePictures(query, true);
     }
 
     @Test
-    public void testRecomputePicturesInvalidQuery() throws IOException {
+    public void testRecomputePicturesInvalidQuery() {
         String query = "SELECT * FROM nowhere";
         doTestRecomputePictures(query, false);
     }
 
-    protected void doTestRecomputePictures(String query, boolean success) throws IOException {
+    protected void doTestRecomputePictures(String query, boolean success) {
         // generating new picture views
-        MultivaluedMap<String, String> formData = new MultivaluedMapImpl();
-        if (query != null) {
-            formData.add("query", query);
-        }
-        String commandId;
-        try (CloseableClientResponse response = httpClientRule.post("/management/pictures/recompute", formData)) {
-            assertEquals(SC_OK, response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-
-            assertBulkStatusScheduled(node);
-            commandId = getBulkCommandId(node);
-        }
+        String commandId = httpClient.buildPostRequest("/management/pictures/recompute")
+                                     .entity(Map.of("query", Objects.requireNonNullElse(query, "")))
+                                     .executeAndThen(new JsonNodeHandler(), node -> {
+                                         assertBulkStatusScheduled(node);
+                                         return getBulkCommandId(node);
+                                     });
 
         // waiting for the asynchronous picture views recompute task
         txFeature.nextTransaction();
 
         var pictureViewsRecomputed = query != null;
-        try (CloseableClientResponse response = httpClientRule.get("/management/bulk/" + commandId)) {
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals(SC_OK, response.getStatus());
-
+        httpClient.buildGetRequest("/management/bulk/" + commandId).executeAndConsume(new JsonNodeHandler(), node -> {
             assertBulkStatusCompleted(node);
             if (success) {
                 assertEquals(pictureViewsRecomputed ? 1 : 0, node.get(STATUS_PROCESSED).asInt());
@@ -141,7 +129,7 @@ public class TestPicturesObject extends ManagementBaseTest {
                 assertEquals(0, node.get(STATUS_TOTAL).asInt());
                 assertEquals("Invalid query", node.get(STATUS_ERROR_MESSAGE).asText());
             }
-        }
+        });
 
         DocumentModel doc = session.getDocument(docRef);
         @SuppressWarnings("unchecked")

@@ -18,19 +18,22 @@
  */
 package org.nuxeo.ecm.restapi.test;
 
+import static org.apache.http.HttpStatus.SC_BAD_REQUEST;
+import static org.apache.http.HttpStatus.SC_OK;
+import static org.apache.http.HttpStatus.SC_UNAUTHORIZED;
 import static org.junit.Assert.assertEquals;
 
-import javax.ws.rs.core.Response;
+import javax.inject.Inject;
 
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.nuxeo.ecm.core.test.annotations.RepositoryConfig;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.HttpStatusCodeHandler;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * @since 9.1
@@ -38,7 +41,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @RunWith(FeaturesRunner.class)
 @Features({ RestServerFeature.class })
 @RepositoryConfig(init = RestServerInit.class)
-public class MeTest extends BaseUserTest {
+public class MeTest {
 
     private static final String DUMMY_PASSWORD = "dummy";
 
@@ -46,61 +49,61 @@ public class MeTest extends BaseUserTest {
 
     private static final String PASSWORD = "user1";
 
-    @Override
-    public void doBefore() {
-        service = getServiceFor("user1", PASSWORD);
-        mapper = new ObjectMapper();
-    }
+    private static final HttpStatusCodeHandler STATUS_CODE_HANDLER = new HttpStatusCodeHandler();
+
+    @Inject
+    protected RestServerFeature restServerFeature;
+
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.builder()
+                                                                   .url(() -> restServerFeature.getRestApiUrl())
+                                                                   .credentials("user1", PASSWORD)
+                                                                   .build();
 
     @Test
     public void testUserCanChangePasswordWithCorrectPassword() {
         // When I change password
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "/me/changepassword",
-                "{\"oldPassword\": \"" + PASSWORD + "\", \"newPassword\": \"" + NEW_PASSWORD + "\"}")) {
-
-            // Then it returns a OK
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildPutRequest("/me/changepassword")
+                  .entity("{\"oldPassword\": \"" + PASSWORD + "\", \"newPassword\": \"" + NEW_PASSWORD + "\"}")
+                  .executeAndConsume(STATUS_CODE_HANDLER,
+                          // Then it returns a OK
+                          status -> assertEquals(SC_OK, status.intValue()));
 
         // And I cannot access current user with old password
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "/me")) {
-            assertEquals(Response.Status.UNAUTHORIZED.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildGetRequest("/me")
+                  .executeAndConsume(STATUS_CODE_HANDLER, status -> assertEquals(SC_UNAUTHORIZED, status.intValue()));
 
         // When I change I restore password using new password
-        service = getServiceFor("user1", NEW_PASSWORD);
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "/me/changepassword",
-                "{\"oldPassword\": \"" + NEW_PASSWORD + "\", \"newPassword\": \"" + PASSWORD + "\"}")) {
-
-            // Then it returns a OK
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildPutRequest("/me/changepassword")
+                  .credentials("user1", NEW_PASSWORD)
+                  .entity("{\"oldPassword\": \"" + NEW_PASSWORD + "\", \"newPassword\": \"" + PASSWORD + "\"}")
+                  .executeAndConsume(STATUS_CODE_HANDLER,
+                          // Then it returns a OK
+                          status -> assertEquals(SC_OK, status.intValue()));
     }
 
     @Test
     public void testUserCannotChangePasswordWithIncorrectPassword() {
         // When I change password
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "/me/changepassword",
-                "{\"oldPassword\": \"" + DUMMY_PASSWORD + "\", \"newPassword\": \"" + NEW_PASSWORD + "\"}")) {
-
-            // Then it returns a UNAUTHORIZED
-            assertEquals(Response.Status.UNAUTHORIZED.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildPutRequest("/me/changepassword")
+                  .entity("{\"oldPassword\": \"" + DUMMY_PASSWORD + "\", \"newPassword\": \"" + NEW_PASSWORD + "\"}")
+                  .executeAndConsume(STATUS_CODE_HANDLER,
+                          // Then it returns a UNAUTHORIZED
+                          status -> assertEquals(SC_UNAUTHORIZED, status.intValue()));
 
         // And the password is unchanged and I can get current user
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "/me")) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildGetRequest("/me")
+                  .executeAndConsume(STATUS_CODE_HANDLER, status -> assertEquals(SC_OK, status.intValue()));
     }
 
     @Test
     @Deploy("org.nuxeo.ecm.platform.restapi.test.test:test-user-manager-password-pattern-config.xml")
     public void testInvalidNewPasswordReturnsBadRequest() {
         // When I change password with one not validating the password pattern (no special char allowed)
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "/me/changepassword",
-                "{\"oldPassword\": \"" + PASSWORD + "\", \"newPassword\": \"me&%\"}")) {
-            // Then it returns a BAD_REQUEST
-            assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildPutRequest("/me/changepassword")
+                  .entity("{\"oldPassword\": \"" + PASSWORD + "\", \"newPassword\": \"me&%\"}")
+                  .executeAndConsume(STATUS_CODE_HANDLER,
+                          // Then it returns a BAD_REQUEST
+                          status -> assertEquals(SC_BAD_REQUEST, status.intValue()));
     }
 }

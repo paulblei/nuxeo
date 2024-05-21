@@ -36,6 +36,9 @@ import org.nuxeo.runtime.test.runner.FeaturesRunner;
 import org.nuxeo.runtime.test.runner.RunnerFeature;
 import org.nuxeo.runtime.test.runner.RuntimeFeature;
 import org.nuxeo.runtime.test.runner.RuntimeHarness;
+import org.nuxeo.runtime.test.runner.ServletContainerFeature;
+
+import javax.inject.Inject;
 
 /**
  * @since 9.2
@@ -44,6 +47,9 @@ import org.nuxeo.runtime.test.runner.RuntimeHarness;
 @Deploy("org.nuxeo.ecm.platform.oauth:OSGI-INF/servletcontainer-config.xml")
 @Deploy("org.nuxeo.ecm.platform.oauth:OSGI-INF/test-oauth2-authentication-contrib.xml")
 public class OAuth2ServletContainerFeature implements RunnerFeature, WorkingDirectoryConfigurator {
+
+    @Inject
+    protected ServletContainerFeature servletContainerFeature;
 
     @Override
     public void initialize(FeaturesRunner runner) {
@@ -61,5 +67,12 @@ public class OAuth2ServletContainerFeature implements RunnerFeature, WorkingDire
 
     private static URL getResource(String resource) {
         return Thread.currentThread().getContextClassLoader().getResource(resource);
+    }
+
+    /**
+     * @since 2023.13
+     */
+    public String getOAuth2Url() {
+        return servletContainerFeature.getHttpUrl() + "/oauth2";
     }
 }

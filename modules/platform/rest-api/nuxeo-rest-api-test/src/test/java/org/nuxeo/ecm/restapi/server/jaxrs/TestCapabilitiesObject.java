@@ -19,7 +19,6 @@
 
 package org.nuxeo.ecm.restapi.server.jaxrs;
 
-import static javax.ws.rs.core.MediaType.WILDCARD;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
@@ -35,28 +34,22 @@ import static org.nuxeo.ecm.core.model.Repository.CAPABILITY_REPOSITORY;
 import static org.nuxeo.runtime.capabilities.CapabilitiesServiceImpl.CAPABILITY_SERVER;
 import static org.nuxeo.runtime.cluster.ClusterServiceImpl.CAPABILITY_CLUSTER;
 
-import java.io.IOException;
-
 import javax.inject.Inject;
-import javax.servlet.http.HttpServletResponse;
 
-import org.junit.After;
-import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.nuxeo.ecm.core.test.CoreFeature;
 import org.nuxeo.ecm.restapi.jaxrs.io.capabilities.CapabilitiesJsonWriter;
 import org.nuxeo.ecm.restapi.test.RestServerFeature;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
-import org.nuxeo.jaxrs.test.HttpClientTestRule;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
-import org.nuxeo.runtime.test.runner.ServletContainerFeature;
 import org.nuxeo.runtime.test.runner.WithFrameworkProperty;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * @since 11.5
@@ -70,37 +63,18 @@ public class TestCapabilitiesObject {
     protected CoreFeature coreFeature;
 
     @Inject
-    protected ServletContainerFeature servletContainerFeature;
+    protected RestServerFeature restServerFeature;
 
-    protected HttpClientTestRule httpClientRule;
-
-    protected ObjectMapper mapper = new ObjectMapper();
-
-    protected HttpClientTestRule getRule() {
-        String url = String.format("http://localhost:%d/api/v1", servletContainerFeature.getPort());
-        return new HttpClientTestRule.Builder().url(url).adminCredentials().accept(WILDCARD).build();
-    }
-
-    @Before
-    public void before() {
-        httpClientRule = getRule();
-        httpClientRule.starting();
-    }
-
-    @After
-    public void after() {
-        httpClientRule.finished();
-    }
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.defaultClient(
+            () -> restServerFeature.getRestApiUrl());
 
     @Test
     @WithFrameworkProperty(name = DISTRIBUTION_NAME, value = DISTRIBUTION_NAME)
     @WithFrameworkProperty(name = DISTRIBUTION_VERSION, value = DISTRIBUTION_VERSION)
     @WithFrameworkProperty(name = DISTRIBUTION_SERVER, value = DISTRIBUTION_SERVER)
-    public void testGet() throws IOException {
-        try (CloseableClientResponse response = httpClientRule.get("/capabilities")) {
-            assertEquals(HttpServletResponse.SC_OK, response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-
+    public void testGet() {
+        httpClient.buildGetRequest("/capabilities").executeAndConsume(new JsonNodeHandler(), node -> {
             assertEquals(CapabilitiesJsonWriter.ENTITY_TYPE, node.get(ENTITY_FIELD_NAME).asText());
 
             JsonNode serverNode = node.get(CAPABILITY_SERVER);
@@ -114,7 +88,7 @@ public class TestCapabilitiesObject {
             assertNotNull(clusterNode);
             assertTrue(clusterNode.get("enabled").asBoolean());
             assertEquals("123", clusterNode.get("nodeId").asText());
-        }
+        });
     }
 
     @Test
@@ -122,11 +96,8 @@ public class TestCapabilitiesObject {
     @WithFrameworkProperty(name = DISTRIBUTION_VERSION, value = DISTRIBUTION_VERSION)
     @WithFrameworkProperty(name = DISTRIBUTION_SERVER, value = DISTRIBUTION_SERVER)
     @WithFrameworkProperty(name = DISTRIBUTION_HOTFIX, value = DISTRIBUTION_HOTFIX)
-    public void testGetWithHotfixVersion() throws IOException {
-        try (CloseableClientResponse response = httpClientRule.get("/capabilities")) {
-            assertEquals(HttpServletResponse.SC_OK, response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-
+    public void testGetWithHotfixVersion() {
+        httpClient.buildGetRequest("/capabilities").executeAndConsume(new JsonNodeHandler(), node -> {
             assertEquals(CapabilitiesJsonWriter.ENTITY_TYPE, node.get(ENTITY_FIELD_NAME).asText());
 
             JsonNode serverNode = node.get(CAPABILITY_SERVER);
@@ -140,33 +111,30 @@ public class TestCapabilitiesObject {
             assertNotNull(clusterNode);
             assertTrue(clusterNode.get("enabled").asBoolean());
             assertEquals("123", clusterNode.get("nodeId").asText());
-        }
+        });
     }
 
     @Test
-    public void testHasBlobKeysCapabilityDBS() throws IOException {
+    public void testHasBlobKeysCapabilityDBS() {
         assumeTrue("DBS capability check", coreFeature.getStorageConfiguration().isDBS());
         assertBlobKeysCapability(true);
     }
 
     @Test
     @WithFrameworkProperty(name = "nuxeo.test.repository.disable.blobKeys", value = "true")
-    public void testDoNotHaveBlobKeysCapabilityDBS() throws IOException {
+    public void testDoNotHaveBlobKeysCapabilityDBS() {
         assumeTrue("DBS capability check", coreFeature.getStorageConfiguration().isDBS());
         assertBlobKeysCapability(false);
     }
 
     @Test
-    public void testDoNotHaveBlobKeysCapabilityVCS() throws IOException {
+    public void testDoNotHaveBlobKeysCapabilityVCS() {
         assumeTrue("VCS capability check", coreFeature.getStorageConfiguration().isVCS());
         assertBlobKeysCapability(false);
     }
 
-    protected void assertBlobKeysCapability(boolean expected) throws IOException {
-        try (CloseableClientResponse response = httpClientRule.get("/capabilities")) {
-            assertEquals(HttpServletResponse.SC_OK, response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-
+    protected void assertBlobKeysCapability(boolean expected) {
+        httpClient.buildGetRequest("/capabilities").executeAndConsume(new JsonNodeHandler(), node -> {
             assertEquals(CapabilitiesJsonWriter.ENTITY_TYPE, node.get(ENTITY_FIELD_NAME).asText());
 
             JsonNode repositoryCapabilityNode = node.get(CAPABILITY_REPOSITORY);
@@ -174,6 +142,6 @@ public class TestCapabilitiesObject {
             JsonNode repositoryNode = repositoryCapabilityNode.get("test");
             assertNotNull(repositoryNode);
             assertEquals(expected, repositoryNode.get(CAPABILITY_QUERY_BLOB_KEYS).asBoolean());
-        }
+        });
     }
 }

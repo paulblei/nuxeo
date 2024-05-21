@@ -18,21 +18,25 @@
  */
 package org.nuxeo.ecm.restapi.test;
 
-import static javax.servlet.http.HttpServletResponse.SC_CONFLICT;
-import static javax.servlet.http.HttpServletResponse.SC_FORBIDDEN;
+import static org.apache.http.HttpStatus.SC_CONFLICT;
+import static org.apache.http.HttpStatus.SC_CREATED;
+import static org.apache.http.HttpStatus.SC_FORBIDDEN;
+import static org.apache.http.HttpStatus.SC_NOT_FOUND;
+import static org.apache.http.HttpStatus.SC_NO_CONTENT;
+import static org.apache.http.HttpStatus.SC_OK;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.nuxeo.ecm.core.io.registry.MarshallingConstants.FETCH_PROPERTIES;
 
-import java.io.IOException;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import javax.inject.Inject;
-import javax.ws.rs.core.MultivaluedMap;
-import javax.ws.rs.core.Response;
 
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.nuxeo.ecm.core.api.DocumentModel;
@@ -45,14 +49,15 @@ import org.nuxeo.ecm.platform.usermanager.NuxeoGroupImpl;
 import org.nuxeo.ecm.platform.usermanager.NuxeoPrincipalImpl;
 import org.nuxeo.ecm.platform.usermanager.UserManager;
 import org.nuxeo.ecm.platform.usermanager.io.NuxeoGroupJsonWriter;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.HttpStatusCodeHandler;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
 import org.nuxeo.runtime.transaction.TransactionHelper;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.sun.jersey.core.util.MultivaluedMapImpl;
 
 /**
  * Tests the users and groups Rest endpoints
@@ -65,7 +70,14 @@ import com.sun.jersey.core.util.MultivaluedMapImpl;
 public class UserGroupTest extends BaseUserTest {
 
     @Inject
-    UserManager um;
+    protected UserManager um;
+
+    @Inject
+    protected RestServerFeature restServerFeature;
+
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.defaultClient(
+            () -> restServerFeature.getRestApiUrl());
 
     protected void nextTransaction() {
         TransactionHelper.commitOrRollbackTransaction();
@@ -73,19 +85,14 @@ public class UserGroupTest extends BaseUserTest {
     }
 
     @Test
-    public void itCanFetchAUser() throws Exception {
+    public void itCanFetchAUser() {
         // Given the user1
 
         // When I call the Rest endpoint
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "/user/user1")) {
-
-            // Then it returns the Json
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-
-            assertEqualsUser("user1", "John", "Lennon", node);
-        }
+        httpClient.buildGetRequest("/user/user1")
+                  .executeAndConsume(new JsonNodeHandler(),
+                          // Then it returns the Json
+                          node -> assertEqualsUser("user1", "John", "Lennon", node));
     }
 
     @Test
@@ -93,11 +100,10 @@ public class UserGroupTest extends BaseUserTest {
         // Given a non existent user
 
         // When I call the Rest endpoint
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "/user/nonexistentuser")) {
-
-            // Then it returns the Json
-            assertEquals(Response.Status.NOT_FOUND.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildGetRequest("/user/nonexistentuser")
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          // Then it returns the Json
+                          status -> assertEquals(SC_NOT_FOUND, status.intValue()));
     }
 
     @Test
@@ -109,36 +115,31 @@ public class UserGroupTest extends BaseUserTest {
         String userJson = getPrincipalAsJson(user);
 
         // When I call a PUT on the Rest endpoint
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "/user/user1", userJson)) {
+        httpClient.buildPutRequest("/user/user1")
+                  .entity(userJson)
+                  .executeAndConsume(new JsonNodeHandler(),
+                          // Then it changes the user
+                          node -> assertEqualsUser("user1", "Paul", "McCartney", node));
 
-            // Then it changes the user
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEqualsUser("user1", "Paul", "McCartney", node);
-
-            nextTransaction(); // see committed changes
-            user = um.getPrincipal("user1");
-            assertEquals("Paul", user.getFirstName());
-            assertEquals("McCartney", user.getLastName());
-        }
+        nextTransaction(); // see committed changes
+        user = um.getPrincipal("user1");
+        assertEquals("Paul", user.getFirstName());
+        assertEquals("McCartney", user.getLastName());
     }
 
     @Test
     public void itCanDeleteAUser() {
         // Given a modified user
-        NuxeoPrincipal user = um.getPrincipal("user1");
 
         // When I call a DELETE on the Rest endpoint
-        try (CloseableClientResponse response = getResponse(RequestType.DELETE, "/user/user1")) {
+        httpClient.buildDeleteRequest("/user/user1")
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          // Then the user is deleted
+                          status -> assertEquals(SC_NO_CONTENT, status.intValue()));
 
-            // Then the user is deleted
-            assertEquals(Response.Status.NO_CONTENT.getStatusCode(), response.getStatus());
-
-            nextTransaction(); // see committed changes
-            user = um.getPrincipal("user1");
-            assertNull(user);
-        }
+        nextTransaction(); // see committed changes
+        NuxeoPrincipal user = um.getPrincipal("user1");
+        assertNull(user);
     }
 
     @Test
@@ -151,19 +152,17 @@ public class UserGroupTest extends BaseUserTest {
         principal.setEmail("test@nuxeo.com");
 
         // When i POST it on the user endpoint
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "/user", getPrincipalAsJson(principal))) {
+        httpClient.buildPostRequest("/user")
+                  .entity(getPrincipalAsJson(principal))
+                  .executeAndConsume(new JsonNodeHandler(SC_CREATED),
+                          // Then a user is created
+                          node -> assertEqualsUser("newuser", "test", "user", node));
 
-            // Then a user is created
-            assertEquals(Response.Status.CREATED.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEqualsUser("newuser", "test", "user", node);
-
-            principal = um.getPrincipal("newuser");
-            assertEquals("test", principal.getFirstName());
-            assertEquals("user", principal.getLastName());
-            assertEquals("nuxeo", principal.getCompany());
-            assertEquals("test@nuxeo.com", principal.getEmail());
-        }
+        principal = um.getPrincipal("newuser");
+        assertEquals("test", principal.getFirstName());
+        assertEquals("user", principal.getLastName());
+        assertEquals("nuxeo", principal.getCompany());
+        assertEquals("test@nuxeo.com", principal.getEmail());
 
         um.deleteUser("newuser");
         assertNull(um.getPrincipal("newuser"));
@@ -177,30 +176,28 @@ public class UserGroupTest extends BaseUserTest {
         nextTransaction();
 
         // When I try to recreate the same user and POST it on the user endpoint
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "/user", getPrincipalAsJson(user1))) {
-            // Then it returns the JSON
-            assertEquals(SC_CONFLICT, response.getStatus());
-        }
+        httpClient.buildPostRequest("/user")
+                  .entity(getPrincipalAsJson(user1))
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          // Then it returns the JSON
+                          status -> assertEquals(SC_CONFLICT, status.intValue()));
     }
 
     @Test
-    public void itCanGetAGroup() throws Exception {
+    public void itCanGetAGroup() {
         // Given a group
         NuxeoGroup group = um.getGroup("group1");
 
         // When i GET on the API
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "/group/" + group.getName())) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-
+        httpClient.buildGetRequest("/group/" + group.getName()).executeAndConsume(new JsonNodeHandler(), node -> {
             // Then i GET the Group
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
             assertEquals(5, node.size());
             assertEqualsGroup(group.getName(), group.getLabel(), node);
-        }
+        });
     }
 
     @Test
-    public void itCanGetAGroupWithFetchProperties() throws Exception {
+    public void itCanGetAGroupWithFetchProperties() {
         NuxeoGroup group = new NuxeoGroupImpl("newGroup");
         group.setLabel("a new group");
         group.setMemberUsers(List.of("user1", "user2"));
@@ -209,25 +206,24 @@ public class UserGroupTest extends BaseUserTest {
         um.createGroup(group.getModel());
         nextTransaction();
 
-        MultivaluedMap<String, String> queryParams = new MultivaluedMapImpl();
-        queryParams.putSingle(FETCH_PROPERTIES + "." + NuxeoGroupJsonWriter.ENTITY_TYPE,
-                "memberUsers,memberGroups,parentGroups");
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "/group/" + group.getName(),
-                queryParams)) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals(8, node.size());
-            JsonNode memberUsers = node.get("memberUsers");
-            assertTrue(memberUsers.isArray());
-            assertEquals(2, memberUsers.size());
-            assertEquals("user1", memberUsers.get(0).asText());
-            assertEquals("user2", memberUsers.get(1).asText());
-            JsonNode memberGroups = node.get("memberGroups");
-            assertEquals(1, memberGroups.size());
-            assertEquals("group2", memberGroups.get(0).asText());
-            JsonNode parentGroups = node.get("parentGroups");
-            assertEquals(1, parentGroups.size());
-            assertEquals("supergroup", parentGroups.get(0).asText());
+        try {
+            httpClient.buildGetRequest("/group/" + group.getName())
+                      .addQueryParameter(FETCH_PROPERTIES + "." + NuxeoGroupJsonWriter.ENTITY_TYPE,
+                              "memberUsers,memberGroups,parentGroups")
+                      .executeAndConsume(new JsonNodeHandler(), node -> {
+                          assertEquals(8, node.size());
+                          JsonNode memberUsers = node.get("memberUsers");
+                          assertTrue(memberUsers.isArray());
+                          assertEquals(2, memberUsers.size());
+                          assertEquals("user1", memberUsers.get(0).asText());
+                          assertEquals("user2", memberUsers.get(1).asText());
+                          JsonNode memberGroups = node.get("memberGroups");
+                          assertEquals(1, memberGroups.size());
+                          assertEquals("group2", memberGroups.get(0).asText());
+                          JsonNode parentGroups = node.get("parentGroups");
+                          assertEquals(1, parentGroups.size());
+                          assertEquals("supergroup", parentGroups.get(0).asText());
+                      });
         } finally {
             um.deleteGroup(group.getModel());
         }
@@ -244,18 +240,17 @@ public class UserGroupTest extends BaseUserTest {
         group.getModel().setProperty(groupConfig.schemaName, "description", "updated description");
 
         // When i PUT this group
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "/group/" + group.getName(),
-                getGroupAsJson(group))) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        httpClient.buildPutRequest("/group/" + group.getName())
+                  .entity(getGroupAsJson(group))
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(SC_OK, status.intValue()));
 
-            // Then the group is modified server side
-            nextTransaction(); // see committed changes
-            group = um.getGroup("group1");
-            assertEquals("modifiedGroup", group.getLabel());
-            assertEquals("updated description", group.getModel().getProperty(groupConfig.schemaName, "description"));
-            assertEquals(2, group.getMemberUsers().size());
-            assertEquals(1, group.getMemberGroups().size());
-        }
+        // Then the group is modified server side
+        nextTransaction(); // see committed changes
+        group = um.getGroup("group1");
+        assertEquals("modifiedGroup", group.getLabel());
+        assertEquals("updated description", group.getModel().getProperty(groupConfig.schemaName, "description"));
+        assertEquals(2, group.getMemberUsers().size());
+        assertEquals(1, group.getMemberGroups().size());
     }
 
     /**
@@ -283,18 +278,18 @@ public class UserGroupTest extends BaseUserTest {
         groupAsJSON.append("    \"description\": \"Updated description\"");
         groupAsJSON.append("  }");
         groupAsJSON.append("}");
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "/group/group1", groupAsJSON.toString())) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
 
-            // Then the group properties are updated server side and the members, subgroups and parent groups are
-            // unchanged
-            nextTransaction(); // see committed changes
-            NuxeoGroup group = um.getGroup("group1");
-            assertEquals("Updated description", group.getModel().getProperty(groupConfig.schemaName, "description"));
-            assertEquals(2, group.getMemberUsers().size());
-            assertEquals(1, group.getMemberGroups().size());
-            assertEquals(1, group.getParentGroups().size());
-        }
+        httpClient.buildPutRequest("/group/group1")
+                  .entity(groupAsJSON.toString())
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(SC_OK, status.intValue()));
+
+        // Then the group properties are updated server side and the members, subgroups and parent groups are unchanged
+        nextTransaction(); // see committed changes
+        NuxeoGroup group = um.getGroup("group1");
+        assertEquals("Updated description", group.getModel().getProperty(groupConfig.schemaName, "description"));
+        assertEquals(2, group.getMemberUsers().size());
+        assertEquals(1, group.getMemberGroups().size());
+        assertEquals(1, group.getParentGroups().size());
 
         // When I PUT this group including the memberUsers field but omitting the properties field in the JSON object
         groupAsJSON = new StringBuilder();
@@ -303,18 +298,17 @@ public class UserGroupTest extends BaseUserTest {
         groupAsJSON.append("  \"id\": \"group1\",");
         groupAsJSON.append("  \"memberUsers\": [\"user1\", \"user2\", \"user3\"]");
         groupAsJSON.append("}");
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "/group/group1", groupAsJSON.toString())) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        httpClient.buildPutRequest("/group/group1")
+                  .entity(groupAsJSON.toString())
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(SC_OK, status.intValue()));
 
-            // Then the group members are updated server side and the properties, subgroups and parent groups are
-            // unchanged
-            nextTransaction(); // see committed changes
-            NuxeoGroup group = um.getGroup("group1");
-            assertEquals(3, group.getMemberUsers().size());
-            assertEquals("Updated description", group.getModel().getProperty(groupConfig.schemaName, "description"));
-            assertEquals(1, group.getMemberGroups().size());
-            assertEquals(1, group.getParentGroups().size());
-        }
+        // Then the group members are updated server side and the properties, subgroups and parent groups are unchanged
+        nextTransaction(); // see committed changes
+        group = um.getGroup("group1");
+        assertEquals(3, group.getMemberUsers().size());
+        assertEquals("Updated description", group.getModel().getProperty(groupConfig.schemaName, "description"));
+        assertEquals(1, group.getMemberGroups().size());
+        assertEquals(1, group.getParentGroups().size());
     }
 
     @Test
@@ -370,27 +364,27 @@ public class UserGroupTest extends BaseUserTest {
 
     protected void changeGroupWithCompatibilityFields(String groupName, String groupJSON, String expectedLabel) {
         GroupConfig groupConfig = um.getGroupConfig();
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "/group/" + groupName, groupJSON)) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            assertNull(um.getGroup("group1bis"));
-            NuxeoGroup group = um.getGroup("group1");
-            assertEquals("group1", group.getName());
-            assertEquals(expectedLabel, group.getLabel());
-            assertEquals("modified description",
-                    um.getGroupModel("group1").getProperty(groupConfig.schemaName, "description"));
-        }
+        httpClient.buildPutRequest("/group/" + groupName)
+                  .entity(groupJSON)
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(SC_OK, status.intValue()));
+        assertNull(um.getGroup("group1bis"));
+        NuxeoGroup group = um.getGroup("group1");
+        assertEquals("group1", group.getName());
+        assertEquals(expectedLabel, group.getLabel());
+        assertEquals("modified description",
+                um.getGroupModel("group1").getProperty(groupConfig.schemaName, "description"));
     }
 
     @Test
     public void itCanDeleteGroup() {
 
         // When i DELETE on a group resources
-        try (CloseableClientResponse response = getResponse(RequestType.DELETE, "/group/group1")) {
-            assertEquals(Response.Status.NO_CONTENT.getStatusCode(), response.getStatus());
+        httpClient.buildDeleteRequest("/group/group1")
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_NO_CONTENT, status.intValue()));
 
-            // Then the group is deleted
-            assertNull(um.getGroup("group1"));
-        }
+        // Then the group is deleted
+        assertNull(um.getGroup("group1"));
     }
 
     @Test
@@ -404,16 +398,17 @@ public class UserGroupTest extends BaseUserTest {
         group.getModel().setProperty(groupConfig.schemaName, "description", "new description");
 
         // When i POST this group
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "/group/", getGroupAsJson(group))) {
-            assertEquals(Response.Status.CREATED.getStatusCode(), response.getStatus());
+        httpClient.buildPostRequest("/group/")
+                  .entity(getGroupAsJson(group))
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_CREATED, status.intValue()));
 
-            // Then the group is modified server side
-            group = um.getGroup("newGroup");
-            assertEquals("a new group", group.getLabel());
-            assertEquals("new description", group.getModel().getProperty(groupConfig.schemaName, "description"));
-            assertEquals(2, group.getMemberUsers().size());
-            assertEquals(1, group.getMemberGroups().size());
-        }
+        // Then the group is modified server side
+        group = um.getGroup("newGroup");
+        assertEquals("a new group", group.getLabel());
+        assertEquals("new description", group.getModel().getProperty(groupConfig.schemaName, "description"));
+        assertEquals(2, group.getMemberUsers().size());
+        assertEquals(1, group.getMemberGroups().size());
 
         um.deleteGroup("newGroup");
         assertNull(um.getGroup("newGroup"));
@@ -465,16 +460,17 @@ public class UserGroupTest extends BaseUserTest {
     }
 
     protected void createGroupWithCompatibilityFields(String groupJSON) {
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "/group/", groupJSON)) {
-            assertEquals(Response.Status.CREATED.getStatusCode(), response.getStatus());
-            assertNull(um.getGroup("newgroup"));
-            NuxeoGroup group = um.getGroup("newgroupcompat");
-            assertEquals("newgroupcompat", group.getName());
-            assertEquals("a new compatibility group", group.getLabel());
-            um.deleteGroup("newgroupcompat");
-            assertNull(um.getGroup("newgroupcompat"));
-            nextTransaction(); // see committed changes
-        }
+        httpClient.buildPostRequest("/group/")
+                  .entity(groupJSON)
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_CREATED, status.intValue()));
+        assertNull(um.getGroup("newgroup"));
+        NuxeoGroup group = um.getGroup("newgroupcompat");
+        assertEquals("newgroupcompat", group.getName());
+        assertEquals("a new compatibility group", group.getLabel());
+        um.deleteGroup("newgroupcompat");
+        assertNull(um.getGroup("newgroupcompat"));
+        nextTransaction(); // see committed changes
     }
 
     @Test
@@ -489,13 +485,12 @@ public class UserGroupTest extends BaseUserTest {
         assertFalse(principal.isMemberOf(group.getName()));
 
         // When i POST this group
-        try (CloseableClientResponse response = getResponse(RequestType.POST,
-                "/user/" + principal.getName() + "/group/" + group.getName())) {
-            assertEquals(Response.Status.CREATED.getStatusCode(), response.getStatus());
-            nextTransaction(); // see committed changes
-            principal = um.getPrincipal(principal.getName());
-            assertTrue(principal.isMemberOf(group.getName()));
-        }
+        httpClient.buildPostRequest("/user/" + principal.getName() + "/group/" + group.getName())
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_CREATED, status.intValue()));
+        nextTransaction(); // see committed changes
+        principal = um.getPrincipal(principal.getName());
+        assertTrue(principal.isMemberOf(group.getName()));
     }
 
     @Test
@@ -520,15 +515,13 @@ public class UserGroupTest extends BaseUserTest {
         assertFalse(principal.isMemberOf(group.getName()));
 
         // When i POST this group
-        try (CloseableClientResponse response = getResponse(RequestType.POST,
-                "/group/" + group.getName() + "/user/" + principal.getName())) {
+        httpClient.buildPostRequest("/group/" + group.getName() + "/user/" + principal.getName())
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_CREATED, status.intValue()));
 
-            assertEquals(Response.Status.CREATED.getStatusCode(), response.getStatus());
-
-            nextTransaction(); // see committed changes
-            principal = um.getPrincipal(principal.getName());
-            assertTrue(principal.isMemberOf(group.getName()));
-        }
+        nextTransaction(); // see committed changes
+        principal = um.getPrincipal(principal.getName());
+        assertTrue(principal.isMemberOf(group.getName()));
     }
 
     @Test
@@ -546,77 +539,71 @@ public class UserGroupTest extends BaseUserTest {
         TransactionHelper.startTransaction();
 
         // When i POST this group
-        try (CloseableClientResponse response = getResponse(RequestType.DELETE,
-                "/user/" + principal.getName() + "/group/" + group.getName())) {
+        httpClient.buildDeleteRequest("/user/" + principal.getName() + "/group/" + group.getName())
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(SC_OK, status.intValue()));
 
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-
-            principal = um.getPrincipal(principal.getName());
-            assertFalse(principal.isMemberOf(group.getName()));
-        }
+        principal = um.getPrincipal(principal.getName());
+        assertFalse(principal.isMemberOf(group.getName()));
     }
 
     @Test
-    public void itCanSearchUsers() throws Exception {
+    public void itCanSearchUsers() {
         // Given a search string
-        MultivaluedMap<String, String> queryParams = new MultivaluedMapImpl();
-        queryParams.putSingle("q", "Steve");
-
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "/user/search", queryParams)) {
-
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals("null", node.get("errorMessage").asText());
-            ArrayNode entries = (ArrayNode) node.get("entries");
-            assertEquals(1, entries.size());
-            assertEquals("user0", entries.get(0).get("id").asText());
-        }
+        httpClient.buildGetRequest("/user/search")
+                  .addQueryParameter("q", "Steve")
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      assertEquals("null", node.get("errorMessage").asText());
+                      ArrayNode entries = (ArrayNode) node.get("entries");
+                      assertEquals(1, entries.size());
+                      assertEquals("user0", entries.get(0).get("id").asText());
+                  });
     }
 
     @Test
-    public void itCanPaginateUsers() throws Exception {
+    public void itCanPaginateUsers() {
 
         String[][] expectedPages = new String[][] { new String[] { "Administrator", "foouser", "Guest" },
                 new String[] { "user0", "user1", "user2" }, new String[] { "user3", "user4" } };
 
         for (int i = 0; i < expectedPages.length; i++) {
-            JsonNode node = getResponseAsJson(RequestType.GET, "/user/search", getQueryParamsForPage(i));
-            assertPaging(i, 3, 3, 8, expectedPages[i].length, node);
-            assertUserEntries(node, expectedPages[i]);
-
+            int iFinal = i;
+            httpClient.buildGetRequest("/user/search")
+                      .addQueryParameters(getQueryParamsForPage(i))
+                      .executeAndConsume(new JsonNodeHandler(), node -> {
+                          assertPaging(iFinal, 3, 3, 8, expectedPages[iFinal].length, node);
+                          assertUserEntries(node, expectedPages[iFinal]);
+                      });
         }
-
     }
 
     @Test
-    public void itCanSearchGroups() throws Exception {
+    public void itCanSearchGroups() {
         // Given a search string
-        MultivaluedMap<String, String> queryParams = new MultivaluedMapImpl();
-        queryParams.putSingle("q", "Lannister");
-
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "/group/search", queryParams)) {
-
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals("null", node.get("errorMessage").asText());
-            ArrayNode entries = (ArrayNode) node.get("entries");
-            assertEquals(1, entries.size());
-            assertEquals("Lannister", entries.get(0).get("grouplabel").asText());
-        }
+        httpClient.buildGetRequest("/group/search")
+                  .addQueryParameter("q", "Lannister")
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      assertEquals("null", node.get("errorMessage").asText());
+                      ArrayNode entries = (ArrayNode) node.get("entries");
+                      assertEquals(1, entries.size());
+                      assertEquals("Lannister", entries.get(0).get("grouplabel").asText());
+                  });
     }
 
     @Test
-    public void itCanPaginateGroups() throws Exception {
+    public void itCanPaginateGroups() {
 
         String[][] expectedResults = new String[][] { new String[] { "administrators", "foogroup", "group0" },
                 new String[] { "group1", "group2", "group3" }, new String[] { "members", "powerusers" },
                 new String[0], };
 
         for (int i = 0; i < expectedResults.length; i++) {
-            JsonNode node = getResponseAsJson(RequestType.GET, "/group/search", getQueryParamsForPage(i));
-            assertPaging(i, 3, 3, 8, expectedResults[i].length, node);
-            assertGroupEntries(node, expectedResults[i]);
-
+            int iFinal = i;
+            httpClient.buildGetRequest("/group/search")
+                      .addQueryParameters(getQueryParamsForPage(i))
+                      .executeAndConsume(new JsonNodeHandler(), node -> {
+                          assertPaging(iFinal, 3, 3, 8, expectedResults[iFinal].length, node);
+                          assertGroupEntries(node, expectedResults[iFinal]);
+                      });
         }
 
     }
@@ -625,35 +612,34 @@ public class UserGroupTest extends BaseUserTest {
      * @since 8.2
      */
     @Test
-    public void itCanPaginateGroupMembers() throws Exception {
+    public void itCanPaginateGroupMembers() {
 
         String[][] expectedResults = new String[][] { new String[] { "dummy", "dummy", "dummy" },
                 new String[] { "dummy", "foouser" } };
 
         for (int i = 0; i < expectedResults.length; i++) {
-            JsonNode node = getResponseAsJson(RequestType.GET, "/group/group1/@users", getQueryParamsForPage(i));
-            assertPaging(i, 3, 2, 5, expectedResults[i].length, node);
+            int iFinal = i;
+            httpClient.buildGetRequest("/group/group1/@users")
+                      .addQueryParameters(getQueryParamsForPage(i))
+                      .executeAndConsume(new JsonNodeHandler(),
+                              node -> assertPaging(iFinal, 3, 2, 5, expectedResults[iFinal].length, node));
         }
-
     }
 
     @Test
-    public void itDoesntWritePassword() throws Exception {
+    public void itDoesntWritePassword() {
         // When I call JSON for user1
-        JsonNode node = getResponseAsJson(RequestType.GET, "/user/user1");
-
-        // Then it doesn't contain the password at all
-        assertNull("", node.get("properties").get("password"));
-
+        httpClient.buildGetRequest("/user/user1")
+                  .executeAndConsume(new JsonNodeHandler(),
+                          // Then it doesn't contain the password at all
+                          node -> assertNull("", node.get("properties").get("password")));
     }
 
     @Test
-    public void itCanFetchATransientUser() throws IOException {
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "/user/transient/foo@bar.com/666")) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEqualsUser("transient/foo@bar.com/666", "foo@bar.com", "null", "foo@bar.com", node);
-        }
+    public void itCanFetchATransientUser() {
+        httpClient.buildGetRequest("/user/transient/foo@bar.com/666")
+                  .executeAndConsume(new JsonNodeHandler(), node -> assertEqualsUser("transient/foo@bar.com/666",
+                          "foo@bar.com", "null", "foo@bar.com", node));
     }
 
     /**
@@ -669,11 +655,10 @@ public class UserGroupTest extends BaseUserTest {
         principal.setEmail("test@nuxeo.com");
         principal.setGroups(List.of("unknownGroup"));
 
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "/user", getPrincipalAsJson(principal))) {
-            assertEquals(SC_FORBIDDEN, response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals("group does not exist: unknownGroup", node.get("message").textValue());
-        }
+        httpClient.buildPostRequest("/user")
+                  .entity(getPrincipalAsJson(principal))
+                  .executeAndConsume(new JsonNodeHandler(SC_FORBIDDEN),
+                          node -> assertEquals("group does not exist: unknownGroup", node.get("message").textValue()));
     }
 
     /**
@@ -686,14 +671,12 @@ public class UserGroupTest extends BaseUserTest {
         user.setFirstName("Paul");
         user.setLastName("McCartney");
         user.setGroups(List.of("unknownGroup"));
-        String userJson = getPrincipalAsJson(user);
 
         // When I call a PUT on the Rest endpoint
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "/user/user1", userJson)) {
-            assertEquals(SC_FORBIDDEN, response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals("group does not exist: unknownGroup", node.get("message").textValue());
-        }
+        httpClient.buildPutRequest("/user/user1")
+                  .entity(getPrincipalAsJson(user))
+                  .executeAndConsume(new JsonNodeHandler(SC_FORBIDDEN),
+                          node -> assertEquals("group does not exist: unknownGroup", node.get("message").textValue()));
     }
 
     /**
@@ -730,11 +713,11 @@ public class UserGroupTest extends BaseUserTest {
     /**
      * @since 5.8
      */
-    private MultivaluedMap<String, String> getQueryParamsForPage(int pageIndex) {
-        MultivaluedMap<String, String> queryParams = new MultivaluedMapImpl();
-        queryParams.putSingle("q", "*");
-        queryParams.putSingle("currentPageIndex", Integer.toString(pageIndex));
-        queryParams.putSingle("pageSize", "3");
+    private Map<String, String> getQueryParamsForPage(int pageIndex) {
+        Map<String, String> queryParams = new LinkedHashMap<>();
+        queryParams.put("q", "*");
+        queryParams.put("currentPageIndex", Integer.toString(pageIndex));
+        queryParams.put("pageSize", "3");
         return queryParams;
     }
 

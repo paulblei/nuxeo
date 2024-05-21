@@ -20,23 +20,25 @@ package org.nuxeo.ecm.restapi.test;
 
 import static javax.servlet.http.HttpServletResponse.SC_BAD_REQUEST;
 import static javax.servlet.http.HttpServletResponse.SC_CONFLICT;
+import static javax.servlet.http.HttpServletResponse.SC_CREATED;
 import static javax.servlet.http.HttpServletResponse.SC_FORBIDDEN;
+import static javax.servlet.http.HttpServletResponse.SC_NOT_FOUND;
+import static javax.servlet.http.HttpServletResponse.SC_NO_CONTENT;
+import static javax.servlet.http.HttpServletResponse.SC_OK;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Iterator;
 
 import javax.inject.Inject;
-import javax.ws.rs.core.MultivaluedMap;
-import javax.ws.rs.core.Response;
 
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.nuxeo.directory.test.DirectoryFeature;
@@ -53,7 +55,9 @@ import org.nuxeo.ecm.directory.io.DirectoryEntryJsonWriter;
 import org.nuxeo.ecm.directory.io.DirectoryEntryListJsonWriter;
 import org.nuxeo.ecm.directory.io.DirectoryListJsonWriter;
 import org.nuxeo.ecm.platform.usermanager.UserManager;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.HttpStatusCodeHandler;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.api.Framework;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
@@ -62,7 +66,6 @@ import org.nuxeo.runtime.test.runner.TransactionalFeature;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.sun.jersey.core.util.MultivaluedMapImpl;
 
 /**
  * @since 5.7.3
@@ -71,28 +74,32 @@ import com.sun.jersey.core.util.MultivaluedMapImpl;
 @Features({ RestServerFeature.class, DirectoryFeature.class })
 @RepositoryConfig(init = RestServerInit.class, cleanup = Granularity.METHOD)
 @Deploy("org.nuxeo.ecm.platform.restapi.test:test-directory-contrib.xml")
-public class DirectoryTest extends BaseTest {
-
-    @Inject
-    DirectoryService ds;
-
-    @Inject
-    TransactionalFeature txFeature;
+public class DirectoryTest {
 
     private static final String TESTDIRNAME = "testdir";
 
     private static final String INT_ID_TEST_DIR_NAME = "intIdTestDir";
 
-    Session dirSession = null;
+    @Inject
+    protected DirectoryService ds;
 
-    @Override
+    @Inject
+    protected TransactionalFeature txFeature;
+
+    @Inject
+    protected RestServerFeature restServerFeature;
+
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.defaultClient(
+            () -> restServerFeature.getRestApiUrl());
+
+    protected Session dirSession = null;
+
     @Before
     public void doBefore() {
-        super.doBefore();
         dirSession = ds.open(TESTDIRNAME);
     }
 
-    @Override
     @After
     public void doAfter() {
         if (dirSession != null) {
@@ -107,104 +114,108 @@ public class DirectoryTest extends BaseTest {
     }
 
     @Test
-    public void itCanQueryDirectoryEntry() throws Exception {
+    public void itCanQueryDirectoryEntry() {
         // Given a directoryEntry
         DocumentModel docEntry = dirSession.getEntry("test1");
         // When I call the Rest endpoint
-        JsonNode node = getResponseAsJson(RequestType.GET, "/directory/" + TESTDIRNAME + "/test1");
-
-        assertEquals(DirectoryEntryJsonWriter.ENTITY_TYPE, node.get("entity-type").asText());
-        assertEquals(TESTDIRNAME, node.get("directoryName").asText());
-        assertEquals(docEntry.getPropertyValue("vocabulary:label"), node.get("properties").get("label").asText());
-
+        httpClient.buildGetRequest("/directory/" + TESTDIRNAME + "/test1")
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      assertEquals(DirectoryEntryJsonWriter.ENTITY_TYPE, node.get("entity-type").asText());
+                      assertEquals(TESTDIRNAME, node.get("directoryName").asText());
+                      assertEquals(docEntry.getPropertyValue("vocabulary:label"),
+                              node.get("properties").get("label").asText());
+                  });
     }
 
     /**
      * @since 8.4
      */
     @Test
-    public void itCanQueryDirectoryNames() throws Exception {
+    public void itCanQueryDirectoryNames() {
         // When I call the Rest endpoint
-        JsonNode node = getResponseAsJson(RequestType.GET, "/directory");
-
-        // It should not return system directories
-        assertEquals(DirectoryListJsonWriter.ENTITY_TYPE, node.get("entity-type").asText());
-        assertEquals(3, node.get("entries").size());
-        assertEquals("continent", node.get("entries").get(0).get("name").textValue());
-        assertEquals("country", node.get("entries").get(1).get("name").textValue());
-        assertEquals("nature", node.get("entries").get(2).get("name").textValue());
-
+        httpClient.buildGetRequest("/directory").executeAndConsume(new JsonNodeHandler(), node -> {
+            // It should not return system directories
+            assertEquals(DirectoryListJsonWriter.ENTITY_TYPE, node.get("entity-type").asText());
+            assertEquals(3, node.get("entries").size());
+            assertEquals("continent", node.get("entries").get(0).get("name").textValue());
+            assertEquals("country", node.get("entries").get(1).get("name").textValue());
+            assertEquals("nature", node.get("entries").get(2).get("name").textValue());
+        });
         // It should not retrieve directory with unknown type
-        MultivaluedMap<String, String> queryParams = new MultivaluedMapImpl();
-        queryParams.put("types", Collections.singletonList("notExistingType"));
-        node = getResponseAsJson(RequestType.GET, "/directory", queryParams);
-        assertEquals(DirectoryListJsonWriter.ENTITY_TYPE, node.get("entity-type").asText());
-        assertEquals(0, node.get("entries").size());
+        httpClient.buildGetRequest("/directory")
+                  .addQueryParameter("types", "notExistingType")
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      assertEquals(DirectoryListJsonWriter.ENTITY_TYPE, node.get("entity-type").asText());
+                      assertEquals(0, node.get("entries").size());
+                  });
 
         // It should not retrieve system directories
-        queryParams = new MultivaluedMapImpl();
-        queryParams.put("types", Collections.singletonList(DirectoryService.SYSTEM_DIRECTORY_TYPE));
-        node = getResponseAsJson(RequestType.GET, "/directory", queryParams);
-        assertEquals(DirectoryListJsonWriter.ENTITY_TYPE, node.get("entity-type").asText());
-        assertEquals(0, node.get("entries").size());
+        httpClient.buildGetRequest("/directory")
+                  .addQueryParameter("types", DirectoryService.SYSTEM_DIRECTORY_TYPE)
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      assertEquals(DirectoryListJsonWriter.ENTITY_TYPE, node.get("entity-type").asText());
+                      assertEquals(0, node.get("entries").size());
+                  });
 
         // It should be able to retrieve a single type
-        queryParams = new MultivaluedMapImpl();
-        queryParams.put("types", Collections.singletonList("toto"));
-        node = getResponseAsJson(RequestType.GET, "/directory", queryParams);
-        assertEquals(DirectoryListJsonWriter.ENTITY_TYPE, node.get("entity-type").asText());
-        assertEquals(1, node.get("entries").size());
+        httpClient.buildGetRequest("/directory")
+                  .addQueryParameter("types", "toto")
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      assertEquals(DirectoryListJsonWriter.ENTITY_TYPE, node.get("entity-type").asText());
+                      assertEquals(1, node.get("entries").size());
+                  });
 
         // It should be able to retrieve many types
-        queryParams = new MultivaluedMapImpl();
-        queryParams.put("types", Arrays.asList("toto", "pouet"));
-        node = getResponseAsJson(RequestType.GET, "/directory", queryParams);
-        assertEquals(DirectoryListJsonWriter.ENTITY_TYPE, node.get("entity-type").asText());
-        assertEquals(2, node.get("entries").size());
+        httpClient.buildGetRequest("/directory")
+                  .addQueryParameter("types", "toto")
+                  .addQueryParameter("types", "pouet")
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      assertEquals(DirectoryListJsonWriter.ENTITY_TYPE, node.get("entity-type").asText());
+                      assertEquals(2, node.get("entries").size());
+                  });
     }
 
     /**
      * @since 8.4
      */
     @Test
-    public void itCannotDeleteDirectoryEntryWithConstraints() throws Exception {
-        // When I try to delete an entry which has contraints
-        try (CloseableClientResponse response = getResponse(RequestType.DELETE, "/directory/continent/europe")) {
-            // It should fail
-            assertEquals(SC_CONFLICT, response.getStatus());
-        }
+    public void itCannotDeleteDirectoryEntryWithConstraints() {
+        // When I try to delete an entry which has constraints
+        httpClient.buildDeleteRequest("/directory/continent/europe")
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_CONFLICT, status.intValue()));
 
-        // When I remove all the contraints
-        JsonNode node = getResponseAsJson(RequestType.GET, "/directory/country");
-        ArrayNode jsonEntries = (ArrayNode) node.get("entries");
+        // When I remove all the constraints
+        ArrayNode jsonEntries = httpClient.buildGetRequest("/directory/country")
+                                          .executeAndThen(new JsonNodeHandler(),
+                                                  node -> (ArrayNode) node.get("entries"));
         Iterator<JsonNode> it = jsonEntries.elements();
         while (it.hasNext()) {
             JsonNode props = it.next().get("properties");
             if ("europe".equals(props.get("parent").textValue())) {
-                try (CloseableClientResponse response = getResponse(RequestType.DELETE,
-                        "/directory/country/" + props.get("id").textValue())) {
-                    assertEquals(Response.Status.NO_CONTENT.getStatusCode(), response.getStatus());
-                }
+                httpClient.buildDeleteRequest("/directory/country/" + props.get("id").textValue())
+                          .executeAndConsume(new HttpStatusCodeHandler(),
+                                  status -> assertEquals(SC_NO_CONTENT, status.intValue()));
             }
         }
         // I should be able to delete the entry
-        try (CloseableClientResponse response = getResponse(RequestType.DELETE, "/directory/continent/europe")) {
-            assertEquals(Response.Status.NO_CONTENT.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildDeleteRequest("/directory/continent/europe")
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_NO_CONTENT, status.intValue()));
     }
 
     @Test
-    public void itCanQueryDirectoryEntries() throws Exception {
+    public void itCanQueryDirectoryEntries() {
         // Given a directory
         DocumentModelList entries = dirSession.query(Collections.emptyMap());
 
         // When i do a request on the directory endpoint
-        JsonNode node = getResponseAsJson(RequestType.GET, "/directory/" + TESTDIRNAME);
-
-        // Then i receive the response as json
-        assertEquals(DirectoryEntryListJsonWriter.ENTITY_TYPE, node.get("entity-type").asText());
-        ArrayNode jsonEntries = (ArrayNode) node.get("entries");
-        assertEquals(entries.size(), jsonEntries.size());
+        httpClient.buildGetRequest("/directory/" + TESTDIRNAME).executeAndConsume(new JsonNodeHandler(), node -> {
+            // Then i receive the response as json
+            assertEquals(DirectoryEntryListJsonWriter.ENTITY_TYPE, node.get("entity-type").asText());
+            ArrayNode jsonEntries = (ArrayNode) node.get("entries");
+            assertEquals(entries.size(), jsonEntries.size());
+        });
     }
 
     @Test
@@ -215,33 +226,49 @@ public class DirectoryTest extends BaseTest {
         String jsonEntry = getDirectoryEntryAsJson(docEntry);
 
         // When i do an update request on the entry endpoint
-        try (CloseableClientResponse response = getResponse(RequestType.PUT,
-                "/directory/" + TESTDIRNAME + "/" + docEntry.getId(), jsonEntry)) {
-            // Then the entry is updated
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildPutRequest("/directory/" + TESTDIRNAME + "/" + docEntry.getId())
+                  .entity(jsonEntry)
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          // Then the entry is updated
+                          status -> assertEquals(SC_OK, status.intValue()));
 
         nextTransaction(); // see committed changes
         docEntry = dirSession.getEntry("test1");
         assertEquals("newlabel", docEntry.getPropertyValue("vocabulary:label"));
 
         // update an entry without the `id` field at the root
-        String compatJSONEntry = "{\"entity-type\":\"directoryEntry\",\"directoryName\":\"testdir\",\"properties\":{\"id\":\"test1\",\"label\":\"another label\"}}";
-        try (CloseableClientResponse response = getResponse(RequestType.PUT,
-                "/directory/" + TESTDIRNAME + "/" + docEntry.getId(), compatJSONEntry)) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-        }
+        String compatJSONEntry = """
+                {
+                  "entity-type": "directoryEntry",
+                  "directoryName": "testdir",
+                  "properties": {
+                    "id": "test1",
+                    "label": "another label"
+                  }
+                }
+                """;
+        httpClient.buildPutRequest("/directory/" + TESTDIRNAME + "/" + docEntry.getId())
+                  .entity(compatJSONEntry)
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(SC_OK, status.intValue()));
 
         nextTransaction(); // see committed changes
         docEntry = dirSession.getEntry(docEntry.getId());
         assertEquals("another label", docEntry.getPropertyValue("vocabulary:label"));
 
         // The document should not be updated if the id is missing at the root and in the properties
-        String missingIdEntry = "{\"entity-type\":\"directoryEntry\",\"directoryName\":\"testdir\",\"properties\":{\"label\":\"different label\"}}";
-        try (CloseableClientResponse response = getResponse(RequestType.PUT,
-                "/directory/" + TESTDIRNAME + "/" + docEntry.getId(), missingIdEntry)) {
-            assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
-        }
+        String missingIdEntry = """
+                {
+                  "entity-type": "directoryEntry",
+                  "directoryName": "testdir",
+                  "properties": {
+                    "label": "different label"
+                  }
+                }
+                """;
+        httpClient.buildPutRequest("/directory/" + TESTDIRNAME + "/" + docEntry.getId())
+                  .entity(missingIdEntry)
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_BAD_REQUEST, status.intValue()));
 
         nextTransaction(); // see committed changes
         docEntry = dirSession.getEntry(docEntry.getId());
@@ -256,10 +283,11 @@ public class DirectoryTest extends BaseTest {
 
             docEntry.setPropertyValue("intIdSchema:label", "new label");
             String jsonEntry = getDirectoryEntryAsJson(INT_ID_TEST_DIR_NAME, docEntry);
-            try (CloseableClientResponse response = getResponse(RequestType.PUT,
-                    "/directory/" + INT_ID_TEST_DIR_NAME + "/" + docEntry.getId(), jsonEntry)) {
-                assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            }
+            httpClient.buildPutRequest("/directory/" + INT_ID_TEST_DIR_NAME + "/" + docEntry.getId())
+                      .entity(jsonEntry)
+                      .executeAndConsume(new HttpStatusCodeHandler(),
+                              // Then the entry is updated
+                              status -> assertEquals(SC_OK, status.intValue()));
 
             nextTransaction(); // see committed changes
             docEntry = dirSession.getEntry(docEntry.getId());
@@ -277,10 +305,11 @@ public class DirectoryTest extends BaseTest {
         String jsonEntry = getDirectoryEntryAsJson(docEntry);
 
         // When i do an update request on the entry endpoint
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "/directory/" + TESTDIRNAME, jsonEntry)) {
-            // Then the entry is updated
-            assertEquals(Response.Status.CREATED.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildPostRequest("/directory/" + TESTDIRNAME)
+                  .entity(jsonEntry)
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          // Then the entry is updated
+                          status -> assertEquals(SC_CREATED, status.intValue()));
 
         nextTransaction(); // see committed changes
         docEntry = dirSession.getEntry("newtest");
@@ -295,57 +324,58 @@ public class DirectoryTest extends BaseTest {
         assertNotNull(docEntry);
 
         // When i do a DELETE request on the entry endpoint
-        try (CloseableClientResponse response = getResponse(RequestType.DELETE,
-                "/directory/" + TESTDIRNAME + "/" + docEntry.getId())) {
-            // Then the entry is deleted
-            nextTransaction(); // see committed changes
-            assertNull(dirSession.getEntry("test2"));
-        }
+        httpClient.buildDeleteRequest("/directory/" + TESTDIRNAME + "/" + docEntry.getId())
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_NO_CONTENT, status.intValue()));
+        // Then the entry is deleted
+        nextTransaction(); // see committed changes
+        assertNull(dirSession.getEntry("test2"));
     }
 
     @Test
-    public void itSends404OnnotExistentDirectory() throws Exception {
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "/directory/nonexistendirectory")) {
-            assertEquals(Response.Status.NOT_FOUND.getStatusCode(), response.getStatus());
-        }
+    public void itSends404OnNotExistentDirectory() {
+        httpClient.buildGetRequest("/directory/nonexistendirectory")
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_NOT_FOUND, status.intValue()));
     }
 
     @Test
-    public void itSends404OnnotExistentDirectoryEntry() throws Exception {
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                "/directory/" + TESTDIRNAME + "/nonexistententry")) {
-            assertEquals(Response.Status.NOT_FOUND.getStatusCode(), response.getStatus());
-        }
+    public void itSends404OnNotExistentDirectoryEntry() {
+        httpClient.buildGetRequest("/directory/" + TESTDIRNAME + "/nonexistendirectory")
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_NOT_FOUND, status.intValue()));
     }
 
     @Test
     public void genericUserCanNotEditDirectories() throws Exception {
-        // As a generic user
-        service = getServiceFor("user1", "user1");
-
         // Given a directory entry as Json
         DocumentModel docEntry = dirSession.getEntry("test1");
         String jsonEntry = getDirectoryEntryAsJson(docEntry);
 
+        var statusCodeHandler = new HttpStatusCodeHandler();
+
         // When i do an update request on the entry endpoint
-        try (CloseableClientResponse response = getResponse(RequestType.PUT,
-                "/directory/" + TESTDIRNAME + "/" + docEntry.getId(), jsonEntry)) {
-            // Then it is forbidden
-            assertEquals(SC_FORBIDDEN, response.getStatus());
-        }
+        httpClient.buildPutRequest("/directory/" + TESTDIRNAME + "/" + docEntry.getId())
+                  .credentials("user1", "user1")
+                  .entity(jsonEntry)
+                  .executeAndConsume(statusCodeHandler,
+                          // Then it is forbidden
+                          status -> assertEquals(SC_FORBIDDEN, status.intValue()));
 
         // When i do an create request on the entry endpoint
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "/directory/" + TESTDIRNAME, jsonEntry)) {
-            // Then it is forbidden
-            assertEquals(SC_FORBIDDEN, response.getStatus());
-        }
+        httpClient.buildPostRequest("/directory/" + TESTDIRNAME)
+                  .credentials("user1", "user1")
+                  .entity(jsonEntry)
+                  .executeAndConsume(statusCodeHandler,
+                          // Then it is forbidden
+                          status -> assertEquals(SC_FORBIDDEN, status.intValue()));
 
         // When i do an delete request on the entry endpoint
-        try (CloseableClientResponse response = getResponse(RequestType.DELETE,
-                "/directory/" + TESTDIRNAME + "/" + docEntry.getId())) {
-            // Then it is forbidden
-            assertEquals(SC_FORBIDDEN, response.getStatus());
-        }
+        httpClient.buildDeleteRequest("/directory/" + TESTDIRNAME + "/" + docEntry.getId())
+                  .credentials("user1", "user1")
+                  .executeAndConsume(statusCodeHandler,
+                          // Then it is forbidden
+                          status -> assertEquals(SC_FORBIDDEN, status.intValue()));
     }
 
     @Test
@@ -358,23 +388,23 @@ public class DirectoryTest extends BaseTest {
         String jsonEntry = getDirectoryEntryAsJson(userDirectoryName, model);
 
         // When i do an update request on it
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "/directory/" + userDirectoryName,
-                jsonEntry)) {
-            // Then it is unauthorized
-            assertEquals(SC_BAD_REQUEST, response.getStatus());
-        }
+        httpClient.buildPostRequest("/directory/" + userDirectoryName)
+                  .entity(jsonEntry)
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          // Then it is unauthorized
+                          status -> assertEquals(SC_BAD_REQUEST, status.intValue()));
     }
 
     @Test
-    public void itShouldNotWritePasswordFieldInResponse() throws Exception {
+    public void itShouldNotWritePasswordFieldInResponse() {
         // Given a user directory entry
         UserManager um = Framework.getService(UserManager.class);
         String userDirectoryName = um.getUserDirectoryName();
 
         // When i do an update request on it
-        JsonNode node = getResponseAsJson(RequestType.GET, "/directory/" + userDirectoryName + "/user1");
-
-        assertEquals("", node.get("properties").get("password").asText());
+        httpClient.buildGetRequest("/directory/" + userDirectoryName + "/user1")
+                  .executeAndConsume(new JsonNodeHandler(),
+                          node -> assertEquals("", node.get("properties").get("password").asText()));
     }
 
     @Test
@@ -387,21 +417,23 @@ public class DirectoryTest extends BaseTest {
         String jsonEntry = getDirectoryEntryAsJson(groupDirectoryName, model);
 
         // When i do an create request on it
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "/directory/" + groupDirectoryName,
-                jsonEntry)) {
-            // Then it is unauthorized
-            assertEquals(SC_BAD_REQUEST, response.getStatus());
-        }
+        httpClient.buildPostRequest("/directory/" + groupDirectoryName)
+                  .entity(jsonEntry)
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          // Then it is unauthorized
+                          status -> assertEquals(SC_BAD_REQUEST, status.intValue()));
     }
 
     @Test
-    public void itCanQueryDirectoryEntryWithIdContainingSlashes() throws Exception {
+    public void itCanQueryDirectoryEntryWithIdContainingSlashes() {
         DocumentModel docEntry = dirSession.getEntry("id/with/slash");
-        JsonNode node = getResponseAsJson(RequestType.GET, "/directory/" + TESTDIRNAME + "/id/with/slash");
-
-        assertEquals(DirectoryEntryJsonWriter.ENTITY_TYPE, node.get("entity-type").asText());
-        assertEquals(TESTDIRNAME, node.get("directoryName").asText());
-        assertEquals(docEntry.getPropertyValue("vocabulary:label"), node.get("properties").get("label").asText());
+        httpClient.buildGetRequest("/directory/" + TESTDIRNAME + "/id/with/slash")
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      assertEquals(DirectoryEntryJsonWriter.ENTITY_TYPE, node.get("entity-type").asText());
+                      assertEquals(TESTDIRNAME, node.get("directoryName").asText());
+                      assertEquals(docEntry.getPropertyValue("vocabulary:label"),
+                              node.get("properties").get("label").asText());
+                  });
     }
 
     @Test
@@ -410,39 +442,34 @@ public class DirectoryTest extends BaseTest {
         String jsonEntry = getDirectoryEntryAsJson(docEntry);
         assertNotNull(jsonEntry);
 
-        MultivaluedMap<String, String> queryParams = new MultivaluedMapImpl();
         int maxResults = 5;
-        queryParams.putSingle("pageSize", String.valueOf(maxResults));
-        queryParams.putSingle("maxResults", String.valueOf(maxResults));
-        ArrayNode entriesArrayNode;
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "/directory/" + TESTDIRNAME,
-                queryParams)) {
-            String json = response.getEntity(String.class);
-            JsonNode jsonNode = mapper.readTree(json);
-            JsonNode entriesNode = jsonNode.get("entries");
 
-            assertTrue(entriesNode.isArray());
-            entriesArrayNode = (ArrayNode) entriesNode;
-            assertEquals(maxResults, entriesArrayNode.size());
-        }
+        var entriesArrayNode = httpClient.buildGetRequest("/directory/" + TESTDIRNAME)
+                                         .addQueryParameter("pageSize", String.valueOf(maxResults))
+                                         .addQueryParameter("maxResults", String.valueOf(maxResults))
+                                         .executeAndThen(new JsonNodeHandler(), jsonNode -> {
+                                             JsonNode entriesNode = jsonNode.get("entries");
+
+                                             assertTrue(entriesNode.isArray());
+                                             assertEquals(maxResults, entriesNode.size());
+                                             return (ArrayNode) entriesNode;
+                                         });
 
         // Check you can retrieve the same directory entries 1 by 1 with offset param.
-        queryParams = new MultivaluedMapImpl();
-        queryParams.putSingle("pageSize", "1");
         for (int offset = 0; offset < entriesArrayNode.size(); offset++) {
             String entryId = entriesArrayNode.get(offset).get("id").asText();
-            queryParams.putSingle("offset", String.valueOf(offset));
-            try (CloseableClientResponse response = getResponse(RequestType.GET, "/directory/" + TESTDIRNAME,
-                    queryParams)) {
-                String json = response.getEntity(String.class);
-                JsonNode jsonNode = mapper.readTree(json);
-                JsonNode entriesNode = jsonNode.get("entries");
 
-                assertTrue(entriesNode.isArray());
-                ArrayNode entriesArrayNodeOffset = (ArrayNode) entriesNode;
-                assertEquals(1, entriesArrayNodeOffset.size());
-                assertEquals(entryId, entriesArrayNodeOffset.get(0).get("id").asText());
-            }
+            httpClient.buildGetRequest("/directory/" + TESTDIRNAME)
+                      .addQueryParameter("pageSize", "1")
+                      .addQueryParameter("offset", String.valueOf(offset))
+                      .executeAndConsume(new JsonNodeHandler(), jsonNode -> {
+                          JsonNode entriesNode = jsonNode.get("entries");
+
+                          assertTrue(entriesNode.isArray());
+                          ArrayNode entriesArrayNodeOffset = (ArrayNode) entriesNode;
+                          assertEquals(1, entriesArrayNodeOffset.size());
+                          assertEquals(entryId, entriesArrayNodeOffset.get(0).get("id").asText());
+                      });
         }
     }
 

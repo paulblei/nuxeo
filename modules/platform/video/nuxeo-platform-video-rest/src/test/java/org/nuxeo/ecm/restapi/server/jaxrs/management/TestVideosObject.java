@@ -20,7 +20,6 @@
 package org.nuxeo.ecm.restapi.server.jaxrs.management;
 
 import static javax.servlet.http.HttpServletResponse.SC_BAD_REQUEST;
-import static javax.servlet.http.HttpServletResponse.SC_OK;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -33,7 +32,6 @@ import static org.nuxeo.ecm.core.bulk.io.BulkConstants.STATUS_TOTAL;
 import static org.nuxeo.ecm.platform.video.VideoConstants.TRANSCODED_VIDEOS_PROPERTY;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -54,12 +52,12 @@ import org.nuxeo.ecm.platform.video.VideoFeature;
 import org.nuxeo.ecm.platform.video.listener.VideoChangedListener;
 import org.nuxeo.ecm.platform.video.service.VideoService;
 import org.nuxeo.ecm.restapi.test.ManagementBaseTest;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.handler.HttpStatusCodeHandler;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.api.Framework;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.sun.jersey.core.util.MultivaluedMapImpl;
 
 /**
@@ -90,66 +88,58 @@ public class TestVideosObject extends ManagementBaseTest {
     }
 
     @Test
-    public void testRecomputeVideosInvalidQuery() throws IOException {
+    public void testRecomputeVideosInvalidQuery() {
         String query = "SELECT * FROM nowhere";
         doTestRecomputeVideos(query, null, false, false);
     }
 
     @Test
-    public void testRecomputeVideosNoQueryNoConversions() throws IOException {
+    public void testRecomputeVideosNoQueryNoConversions() {
         doTestRecomputeVideos(null, null, false, true);
     }
 
     @Test
-    public void testRecomputeVideosValidQueryCustomConversion() throws IOException {
+    public void testRecomputeVideosValidQueryCustomConversion() {
         String query = "SELECT * FROM Document WHERE ecm:mixinType = 'Video'";
         doTestRecomputeVideos(query, List.of("WebM 480p"), false, true);
     }
 
     @Test
-    public void testRecomputeVideosImpossibleConversion() throws IOException {
+    public void testRecomputeVideosImpossibleConversion() {
         doTestRecomputeVideos(null, List.of("foo 480p"), true, false);
     }
 
     @Test
-    public void testRecomputeVideosCustomRenditionsList() throws IOException {
+    public void testRecomputeVideosCustomRenditionsList() {
         doTestRecomputeVideos(null, List.of("WebM 480p", "MP4 480p"), false, true);
     }
 
     @Test
-    public void testRecomputeOneAfterRecomputeAll() throws IOException {
+    public void testRecomputeOneAfterRecomputeAll() {
         // generating all default video renditions
         doTestRecomputeVideos(null, null, false, true);
 
-        MultivaluedMap<String, String> formData = new MultivaluedMapImpl();
-        String commandId;
-
         // try recomputing only the Ogg conversion
-        formData.add("conversionNames", "Ogg 480p");
-        try (CloseableClientResponse response = httpClientRule.post("/management/videos/recompute/", formData);
-                InputStream entityStream = response.getEntityInputStream()) {
-            assertEquals(SC_OK, response.getStatus());
-            JsonNode node = mapper.readTree(entityStream);
-            assertBulkStatusScheduled(node);
-            commandId = getBulkCommandId(node);
-        }
+        String commandId = httpClient.buildPostRequest("/management/videos/recompute/")
+                                     .entity(Map.of("conversionNames", "Ogg 480p"))
+                                     .executeAndThen(new JsonNodeHandler(), node -> {
+                                         assertBulkStatusScheduled(node);
+                                         return getBulkCommandId(node);
+                                     });
         // waiting for the asynchronous video renditions recompute task
         txFeature.nextTransaction();
 
-        try (CloseableClientResponse response = httpClientRule.get("/management/bulk/" + commandId);
-                InputStream entityStream = response.getEntityInputStream()) {
-            JsonNode node = mapper.readTree(entityStream);
-            assertEquals(SC_OK, response.getStatus());
-            assertBulkStatusCompleted(node);
-            DocumentModel doc = session.getDocument(docRef);
-            @SuppressWarnings("unchecked")
-            var transcodedVideos = (List<Map<String, Serializable>>) doc.getPropertyValue(TRANSCODED_VIDEOS_PROPERTY);
-            assertTranscodedVideos(null, transcodedVideos);
-        }
+        httpClient.buildGetRequest("/management/bulk/" + commandId)
+                  .executeAndConsume(new JsonNodeHandler(), this::assertBulkStatusCompleted);
+
+        DocumentModel doc = session.getDocument(docRef);
+        @SuppressWarnings("unchecked")
+        var transcodedVideos = (List<Map<String, Serializable>>) doc.getPropertyValue(TRANSCODED_VIDEOS_PROPERTY);
+        assertTranscodedVideos(null, transcodedVideos);
     }
 
     protected void doTestRecomputeVideos(String query, List<String> expectedRenditions,
-            boolean expectMissingConversionError, boolean expectSuccess) throws IOException {
+            boolean expectMissingConversionError, boolean expectSuccess) {
         // Test there is no already generated renditions
         DocumentModel doc = session.getDocument(docRef);
 
@@ -165,32 +155,25 @@ public class TestVideosObject extends ManagementBaseTest {
         if (expectedRenditions != null) {
             formData.put("conversionNames", expectedRenditions);
         }
+        var requestBuilder = httpClient.buildPostRequest("/management/videos/recompute/").entity(formData);
+        if (expectMissingConversionError) {
+            requestBuilder.executeAndConsume(new HttpStatusCodeHandler(),
+                    status -> assertEquals(SC_BAD_REQUEST, status.intValue()));
+        } else {
+            String commandId = requestBuilder.executeAndThen(new JsonNodeHandler(), node -> {
+                assertBulkStatusScheduled(node);
+                return getBulkCommandId(node);
+            });
 
-        String commandId;
-        try (CloseableClientResponse response = httpClientRule.post("/management/videos/recompute/", formData);
-                InputStream entityStream = response.getEntityInputStream()) {
-            if (expectMissingConversionError) {
-                assertEquals(SC_BAD_REQUEST, response.getStatus());
-                return;
-            }
-            assertEquals(SC_OK, response.getStatus());
-            JsonNode node = mapper.readTree(entityStream);
-            assertBulkStatusScheduled(node);
-            commandId = getBulkCommandId(node);
+            // waiting for the asynchronous video renditions recompute task
+            txFeature.nextTransaction();
+            assertResponse(commandId, expectedRenditions, expectSuccess);
         }
-
-        // waiting for the asynchronous video renditions recompute task
-        txFeature.nextTransaction();
-        assertResponse(commandId, expectedRenditions, expectSuccess);
 
     }
 
-    protected void assertResponse(String commandId, List<String> expectedRenditions, boolean expectSuccess)
-            throws IOException {
-        try (CloseableClientResponse response = httpClientRule.get("/management/bulk/" + commandId);
-                InputStream entityStream = response.getEntityInputStream()) {
-            JsonNode node = mapper.readTree(entityStream);
-            assertEquals(SC_OK, response.getStatus());
+    protected void assertResponse(String commandId, List<String> expectedRenditions, boolean expectSuccess) {
+        httpClient.buildGetRequest("/management/bulk/" + commandId).executeAndConsume(new JsonNodeHandler(), node -> {
             assertBulkStatusCompleted(node);
             // for visibility
             txFeature.nextTransaction();
@@ -213,7 +196,7 @@ public class TestVideosObject extends ManagementBaseTest {
                 assertEquals("Invalid query", node.get(STATUS_ERROR_MESSAGE).asText());
                 assertTrue(transcodedVideos.isEmpty());
             }
-        }
+        });
     }
 
     protected void assertTranscodedVideos(List<String> expectedRenditions,

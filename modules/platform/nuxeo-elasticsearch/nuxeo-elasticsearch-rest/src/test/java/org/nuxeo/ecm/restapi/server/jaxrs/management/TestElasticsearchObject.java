@@ -21,7 +21,6 @@ package org.nuxeo.ecm.restapi.server.jaxrs.management;
 
 import static javax.servlet.http.HttpServletResponse.SC_NOT_FOUND;
 import static javax.servlet.http.HttpServletResponse.SC_NO_CONTENT;
-import static javax.servlet.http.HttpServletResponse.SC_OK;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
@@ -29,7 +28,6 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.nuxeo.ecm.restapi.server.jaxrs.management.ElasticsearchObject.GET_ALL_DOCUMENTS_QUERY;
 
-import java.io.IOException;
 import java.util.Arrays;
 import java.util.stream.Stream;
 
@@ -46,7 +44,9 @@ import org.nuxeo.elasticsearch.api.ElasticSearchAdmin;
 import org.nuxeo.elasticsearch.api.ElasticSearchService;
 import org.nuxeo.elasticsearch.query.NxQueryBuilder;
 import org.nuxeo.elasticsearch.test.RepositoryLightElasticSearchFeature;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.HttpResponse;
+import org.nuxeo.http.test.handler.HttpStatusCodeHandler;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
@@ -75,7 +75,7 @@ public class TestElasticsearchObject extends ManagementBaseTest {
     protected TransactionalFeature txFeature;
 
     @Test
-    public void shouldRunIndexing() throws IOException {
+    public void shouldRunIndexing() {
         // Init indexes and drop if any
         esa.initIndexes(true);
 
@@ -95,21 +95,17 @@ public class TestElasticsearchObject extends ManagementBaseTest {
         assertEquals(0, ess.query(new NxQueryBuilder(coreSession).nxql(GET_ALL_DOCUMENTS_QUERY)).totalSize());
 
         // Start the ES indexing of all document of the coreSession repository
-        try (CloseableClientResponse response = httpClientRule.post("/management/elasticsearch/reindex", null)) {
-            verifyIndexingResponse(response, 3 + initialDocCount);
-        }
+        httpClient.buildPostRequest("/management/elasticsearch/reindex")
+                  .executeAndConsume(new JsonNodeHandler(), node -> verifyIndexingResponse(node, 3 + initialDocCount));
     }
 
     @Test
     public void fullReindexShouldBeExclusive() {
         txFeature.nextTransaction();
-        int status1, status2;
-        try(CloseableClientResponse response = httpClientRule.post("/management/elasticsearch/reindex",null)) {
-            status1 = response.getStatus();
-        }
-        try(CloseableClientResponse response = httpClientRule.post("/management/elasticsearch/reindex",null)) {
-            status2 = response.getStatus();
-        }
+        int status1 = httpClient.buildPostRequest("/management/elasticsearch/reindex")
+                                .executeAndThen(HttpResponse::getStatus);
+        int status2 = httpClient.buildPostRequest("/management/elasticsearch/reindex")
+                                .executeAndThen(HttpResponse::getStatus);
         // One is accepted with a 200 the other is rejected with a 409
         assertNotEquals(status1, status2);
         assertTrue("status1: " + status1, status1 == 200 || status1 == 409);
@@ -119,7 +115,7 @@ public class TestElasticsearchObject extends ManagementBaseTest {
     }
 
     @Test
-    public void shouldRunIndexingByNXQLQuery() throws IOException {
+    public void shouldRunIndexingByNXQLQuery() {
         // Init indexes and drop if any
         esa.initIndexes(true);
 
@@ -128,14 +124,13 @@ public class TestElasticsearchObject extends ManagementBaseTest {
 
         String query = "SELECT * FROM Document WHERE dc:title LIKE 'Title of my-file%'";
         // Start the ES indexing of document that match the nxql query (2 files)
-        try (CloseableClientResponse response = httpClientRule.post("/management/elasticsearch/reindex?query=" + query,
-                null)) {
-            verifyIndexingResponse(response, 2);
-        }
+        httpClient.buildPostRequest("/management/elasticsearch/reindex")
+                  .addQueryParameter("query", query)
+                  .executeAndConsume(new JsonNodeHandler(), node -> verifyIndexingResponse(node, 2));
     }
 
     @Test
-    public void shouldRunIndexingOnDocumentAndItsChildren() throws IOException {
+    public void shouldRunIndexingOnDocumentAndItsChildren() {
         // Init indexes and drop if any
         esa.initIndexes(true);
 
@@ -146,60 +141,53 @@ public class TestElasticsearchObject extends ManagementBaseTest {
         String docId = coreSession.getDocument(new PathRef("/default-domain/workspaces/Folder")).getId();
 
         // Start the ES indexing for a given document (folder) and its children (2 files)
-        try (CloseableClientResponse response = httpClientRule.post("/management/elasticsearch/" + docId + "/reindex",
-                null)) {
-            verifyIndexingResponse(response, 3);
-        }
+        httpClient.buildPostRequest("/management/elasticsearch/" + docId + "/reindex")
+                  .executeAndConsume(new JsonNodeHandler(), node -> verifyIndexingResponse(node, 3));
     }
 
     @Test
     public void shouldFailRunningIndexingWhenRepositoryNotExists() {
         // Launch the ES indexing
-        try (CloseableClientResponse response = httpClientRule.post(
-                "/repo/unExistingRepository/management/elasticsearch/reindex", null)) {
-            assertEquals(SC_NOT_FOUND, response.getStatus());
-        }
+        httpClient.buildPostRequest("/repo/unExistingRepository/management/elasticsearch/reindex")
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_NOT_FOUND, status.intValue()));
     }
 
     @Test
     public void shouldRunFlushOnRepository() {
-        try (CloseableClientResponse response = httpClientRule.post("/management/elasticsearch/flush", null)) {
-            assertEquals(SC_NO_CONTENT, response.getStatus());
-        }
+        httpClient.buildPostRequest("/management/elasticsearch/flush")
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_NO_CONTENT, status.intValue()));
     }
 
     @Test
     public void shouldRunOptimizeOnRepository() {
-        try (CloseableClientResponse response = httpClientRule.post("/management/elasticsearch/optimize", null)) {
-            assertEquals(SC_NO_CONTENT, response.getStatus());
-        }
+        httpClient.buildPostRequest("/management/elasticsearch/optimize")
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_NO_CONTENT, status.intValue()));
     }
 
     @Test
-    public void testCheckSearch() throws IOException {
-        try (CloseableClientResponse response = httpClientRule.get("/management/elasticsearch/checkSearch")) {
-            assertEquals(SC_OK, response.getStatus());
-            JsonNode jsonNode = mapper.readTree(response.getEntityInputStream());
-            assertTrue(jsonNode.isObject());
-            assertEquals(jsonNode.get("repo").get("resultsCount"), jsonNode.get("elastic").get("resultsCount"));
-            assertNotNull(jsonNode.get("repo").get("results"));
-            assertEquals(jsonNode.get("repo").get("results"), jsonNode.get("elastic").get("results"));
-        }
+    public void testCheckSearch() {
+        httpClient.buildGetRequest("/management/elasticsearch/checkSearch")
+                  .executeAndConsume(new JsonNodeHandler(), jsonNode -> {
+                      assertTrue(jsonNode.isObject());
+                      assertEquals(jsonNode.get("repo").get("resultsCount"),
+                              jsonNode.get("elastic").get("resultsCount"));
+                      assertNotNull(jsonNode.get("repo").get("results"));
+                      assertEquals(jsonNode.get("repo").get("results"), jsonNode.get("elastic").get("results"));
+                  });
     }
 
     /**
      * Allows us to verify the indexing process.
      */
-    protected void verifyIndexingResponse(CloseableClientResponse response, long expectedIndexedDocuments)
-            throws IOException {
-        assertEquals(SC_OK, response.getStatus());
-        JsonNode jsonNode = mapper.readTree(response.getEntityInputStream());
+    protected void verifyIndexingResponse(JsonNode jsonNode, long expectedIndexedDocuments) {
         assertTrue(jsonNode.has("commandId"));
         assertTrue(jsonNode.has("state"));
 
         // Check the indexing status: at this step the indexing is launched but we are not sure about the exactly
         // value of its progress status
-        assertEquals(SC_OK, response.getStatus());
         assertFalse(Arrays.asList("UNKNOWN", "ABORTED").contains(jsonNode.get("state").asText()));
 
         // Wait until the end of the ES indexing and then assert our expected indexed documents

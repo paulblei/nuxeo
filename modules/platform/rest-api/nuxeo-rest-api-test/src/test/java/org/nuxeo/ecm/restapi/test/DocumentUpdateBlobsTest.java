@@ -23,6 +23,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.nuxeo.common.function.ThrowableConsumer.asConsumer;
 import static org.nuxeo.ecm.core.api.Blobs.createBlob;
 
 import java.io.IOException;
@@ -37,9 +38,11 @@ import javax.inject.Inject;
 import javax.ws.rs.core.Response;
 
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.nuxeo.ecm.core.api.Blob;
+import org.nuxeo.ecm.core.api.CoreSession;
 import org.nuxeo.ecm.core.api.DocumentModel;
 import org.nuxeo.ecm.core.api.IdRef;
 import org.nuxeo.ecm.core.api.security.ACE;
@@ -48,13 +51,15 @@ import org.nuxeo.ecm.core.api.security.ACP;
 import org.nuxeo.ecm.core.api.security.SecurityConstants;
 import org.nuxeo.ecm.core.test.annotations.Granularity;
 import org.nuxeo.ecm.core.test.annotations.RepositoryConfig;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.CloseableHttpResponse;
+import org.nuxeo.http.test.HttpClientTestRule;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
 import org.nuxeo.runtime.test.runner.TransactionalFeature;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.NullNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -68,7 +73,9 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 @Features(RestServerFeature.class)
 @Deploy("org.nuxeo.ecm.platform.restapi.test.test:multiblob-doctype.xml")
 @RepositoryConfig(cleanup = Granularity.METHOD, init = RestServerInit.class)
-public class DocumentUpdateBlobsTest extends BaseTest {
+public class DocumentUpdateBlobsTest {
+
+    protected static final ObjectMapper MAPPER = new ObjectMapper();
 
     protected static final String FILE_CONTENT_PROP = "file:content";
 
@@ -76,10 +83,18 @@ public class DocumentUpdateBlobsTest extends BaseTest {
 
     protected static final String MULTIBLOB_BLOBS_PROP = "mb:blobs";
 
-    protected static final Map<String, String> HEADERS = Map.of("X-NXDocumentProperties", "*");
+    @Inject
+    protected CoreSession session;
+
+    @Inject
+    protected RestServerFeature restServerFeature;
 
     @Inject
     protected TransactionalFeature transactionalFeature;
+
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.defaultJsonClient(
+            () -> restServerFeature.getRestApiUrl());
 
     protected String file1Id;
 
@@ -149,7 +164,7 @@ public class DocumentUpdateBlobsTest extends BaseTest {
         JSONDocumentNode jsonDoc = getJSONDocumentNode(file1Id);
         assertNotNull(jsonDoc.getPropertyAsJsonNode(FILE_CONTENT_PROP));
         // PUT the same JSON document, with a file:content property
-        try (CloseableClientResponse response = putJSONDocument(file1Id, jsonDoc)) {
+        try (CloseableHttpResponse response = putJSONDocument(file1Id, jsonDoc)) {
             assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
 
             // ensure nothing has changed
@@ -164,7 +179,7 @@ public class DocumentUpdateBlobsTest extends BaseTest {
         assertNotNull(jsonDoc.getPropertyAsJsonNode(FILE_CONTENT_PROP));
         // PUT the same JSON document, without a file:content property
         jsonDoc.removePropertyValue(FILE_CONTENT_PROP);
-        try (CloseableClientResponse response = putJSONDocument(file1Id, jsonDoc)) {
+        try (CloseableHttpResponse response = putJSONDocument(file1Id, jsonDoc)) {
             assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
 
             // ensure nothing has changed
@@ -179,7 +194,7 @@ public class DocumentUpdateBlobsTest extends BaseTest {
         assertNotNull(jsonDoc.getPropertyAsJsonNode(FILE_CONTENT_PROP));
         // PUT the same JSON document, with a null file:content property
         jsonDoc.setPropertyValue(FILE_CONTENT_PROP, NullNode.instance);
-        try (CloseableClientResponse response = putJSONDocument(file1Id, jsonDoc)) {
+        try (CloseableHttpResponse response = putJSONDocument(file1Id, jsonDoc)) {
             assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
 
             // ensure blob has been removed
@@ -199,7 +214,7 @@ public class DocumentUpdateBlobsTest extends BaseTest {
         // replace file1 'file:content' with file2 'file:content'
         jsonFile1.setPropertyValue(FILE_CONTENT_PROP, jsonFile2.getPropertyAsJsonNode(FILE_CONTENT_PROP));
 
-        try (CloseableClientResponse response = putJSONDocument(file1Id, jsonFile1)) {
+        try (CloseableHttpResponse response = putJSONDocument(file1Id, jsonFile1)) {
             assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
 
             // ensure file1 blob has changed
@@ -221,9 +236,7 @@ public class DocumentUpdateBlobsTest extends BaseTest {
         jsonFile1.setPropertyValue(FILE_CONTENT_PROP, jsonFile2.getPropertyAsJsonNode(FILE_CONTENT_PROP));
 
         // switch to user1 who does not have access to file2
-        service = getServiceFor("user1", "user1");
-
-        try (CloseableClientResponse response = putJSONDocument(file1Id, jsonFile1)) {
+        try (CloseableHttpResponse response = putJSONDocumentAsUser1(file1Id, jsonFile1)) {
             assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
 
             // ensure nothing has changed
@@ -247,7 +260,7 @@ public class DocumentUpdateBlobsTest extends BaseTest {
         // reference the blob 'file:content' from file2 that does not exist anymore
         jsonFile1.setPropertyValue(FILE_CONTENT_PROP, jsonFile2.getPropertyAsJsonNode(FILE_CONTENT_PROP));
 
-        try (CloseableClientResponse response = putJSONDocument(file1Id, jsonFile1)) {
+        try (CloseableHttpResponse response = putJSONDocument(file1Id, jsonFile1)) {
             assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
 
             // ensure file1 blob has not changed
@@ -269,15 +282,15 @@ public class DocumentUpdateBlobsTest extends BaseTest {
         jsonDoc = removeAttachment(jsonDoc, 0);
         jsonDoc = removeAttachment(jsonDoc, 0);
 
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "id/" + file3Id, jsonDoc.asJson())) {
+        httpClient.buildPutRequest("/id/" + file3Id).entity(jsonDoc.asJson()).executeAndConsume(asConsumer(response -> {
             assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
 
             // ensure file3 has only the last attachment
             transactionalFeature.nextTransaction();
-            attachments = getAttachments(file3Id);
-            assertEquals(1, attachments.size());
-            assertAttachmentContent(attachments, 0, "three");
-        }
+            var attachments2 = getAttachments(file3Id);
+            assertEquals(1, attachments2.size());
+            assertAttachmentContent(attachments2, 0, "three");
+        }));
     }
 
     @Test
@@ -293,7 +306,7 @@ public class DocumentUpdateBlobsTest extends BaseTest {
         // remove the last one
         jsonFile3 = removeAttachment(jsonFile3, 2);
 
-        try (CloseableClientResponse response = putJSONDocument(file3Id, jsonFile3)) {
+        try (CloseableHttpResponse response = putJSONDocument(file3Id, jsonFile3)) {
             assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
 
             transactionalFeature.nextTransaction();
@@ -317,9 +330,7 @@ public class DocumentUpdateBlobsTest extends BaseTest {
         jsonFile3 = replaceAttachment(jsonFile3, 1, jsonFile2.getPropertyAsJsonNode(FILE_CONTENT_PROP));
 
         // switch to user1 who does not have access to file2
-        service = getServiceFor("user1", "user1");
-
-        try (CloseableClientResponse response = putJSONDocument(file3Id, jsonFile3)) {
+        try (CloseableHttpResponse response = putJSONDocumentAsUser1(file3Id, jsonFile3)) {
             assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
 
             transactionalFeature.nextTransaction();
@@ -346,7 +357,7 @@ public class DocumentUpdateBlobsTest extends BaseTest {
         // make the first attachment references the blob 'file:content' from file1 that does not exist anymore
         jsonFile3 = replaceAttachment(jsonFile3, 2, jsonFile1.getPropertyAsJsonNode(FILE_CONTENT_PROP));
 
-        try (CloseableClientResponse response = putJSONDocument(file3Id, jsonFile3)) {
+        try (CloseableHttpResponse response = putJSONDocument(file3Id, jsonFile3)) {
             assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
 
             transactionalFeature.nextTransaction();
@@ -374,18 +385,18 @@ public class DocumentUpdateBlobsTest extends BaseTest {
         JsonNode fileNode = arrayNode.get(2).get("file");
         String content = String.format("{ \"data\": \"http://fakeurl.com/nuxeo/foo/bar\", \"blobUrl\": \"%s\" }",
                 fileNode.get("blobUrl").asText());
-        var blob = mapper.readTree(content);
+        var blob = MAPPER.readTree(content);
         replaceAttachment(jsonDoc, 2, blob);
 
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "id/" + file3Id, jsonDoc.asJson())) {
+        httpClient.buildPutRequest("/id/" + file3Id).entity(jsonDoc.asJson()).executeAndConsume(asConsumer(response -> {
             assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
 
             // ensure file3 attachments have not changed
             transactionalFeature.nextTransaction();
-            attachments = getAttachments(file3Id);
-            assertEquals(3, attachments.size());
-            assertAttachmentContent(attachments, 2, "three");
-        }
+            var attachments2 = getAttachments(file3Id);
+            assertEquals(3, attachments2.size());
+            assertAttachmentContent(attachments2, 2, "three");
+        }));
     }
 
     @Test
@@ -399,7 +410,7 @@ public class DocumentUpdateBlobsTest extends BaseTest {
         // update the sibling
         jsonFile4 = replaceMultiBlobs(jsonFile4, 0, on -> on.put("filename", "four-bis.txt"));
 
-        try (CloseableClientResponse response = putJSONDocument(file4Id, jsonFile4)) {
+        try (CloseableHttpResponse response = putJSONDocument(file4Id, jsonFile4)) {
             assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
 
             // ensure nothing has changed
@@ -421,7 +432,7 @@ public class DocumentUpdateBlobsTest extends BaseTest {
         // remove mb:blobs/0/blob property / update the sibling
         jsonFile4 = replaceMultiBlobs(jsonFile4, 0, on -> on.put("filename", "four-bis.txt").remove("content"));
 
-        try (CloseableClientResponse response = putJSONDocument(file4Id, jsonFile4)) {
+        try (CloseableHttpResponse response = putJSONDocument(file4Id, jsonFile4)) {
             assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
 
             // ensure nothing has changed
@@ -443,7 +454,7 @@ public class DocumentUpdateBlobsTest extends BaseTest {
         // set a null value for mb:blobs/0/blob property
         jsonFile4 = replaceMultiBlobs(jsonFile4, 0, on -> on.replace("content", NullNode.instance));
 
-        try (CloseableClientResponse response = putJSONDocument(file4Id, jsonFile4)) {
+        try (CloseableHttpResponse response = putJSONDocument(file4Id, jsonFile4)) {
             assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
 
             // ensure nothing has changed
@@ -466,7 +477,7 @@ public class DocumentUpdateBlobsTest extends BaseTest {
         jsonFile4 = replaceMultiBlobs(jsonFile4, 0,
                 on -> on.put("filename", "four-bis.txt").replace("content", NullNode.instance));
 
-        try (CloseableClientResponse response = putJSONDocument(file4Id, jsonFile4)) {
+        try (CloseableHttpResponse response = putJSONDocument(file4Id, jsonFile4)) {
             assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
 
             // ensure nothing has changed
@@ -490,7 +501,7 @@ public class DocumentUpdateBlobsTest extends BaseTest {
         jsonFile1.setPropertyValue(FILE_CONTENT_PROP, jsonFile2.getPropertyAsJsonNode(FILE_CONTENT_PROP));
 
         // Administrator has no permission to download any blob
-        try (CloseableClientResponse response = putJSONDocument(file1Id, jsonFile1)) {
+        try (CloseableHttpResponse response = putJSONDocument(file1Id, jsonFile1)) {
             assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
 
             // ensure nothing has changed
@@ -506,7 +517,7 @@ public class DocumentUpdateBlobsTest extends BaseTest {
         assertBlobContent(file1Id, "foo");
         var jsonFile1 = getJSONDocumentNode(file1Id);
 
-        var fakeBlob = mapper.readTree("{ \"data\": \"http://fakeurl.com/nuxeo/foo/bar\" }");
+        var fakeBlob = MAPPER.readTree("{ \"data\": \"http://fakeurl.com/nuxeo/foo/bar\" }");
         jsonFile1.setPropertyValue(FILE_CONTENT_PROP, fakeBlob);
 
         try (var response = putJSONDocument(file1Id, jsonFile1)) {
@@ -518,15 +529,21 @@ public class DocumentUpdateBlobsTest extends BaseTest {
         }
     }
 
-    protected JSONDocumentNode getJSONDocumentNode(String docId) throws IOException {
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "id/" + docId, HEADERS)) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            return new JSONDocumentNode((response.getEntityInputStream()));
-        }
+    protected JSONDocumentNode getJSONDocumentNode(String docId) {
+        return httpClient.buildGetRequest("/id/" + docId)
+                         .addHeader("X-NXDocumentProperties", "*")
+                         .execute(new JSONDocumentNodeHandler());
     }
 
-    protected CloseableClientResponse putJSONDocument(String docId, JSONDocumentNode jsonDoc) throws IOException {
-        return getResponse(RequestType.PUT, "id/" + docId, jsonDoc.asJson());
+    protected CloseableHttpResponse putJSONDocument(String docId, JSONDocumentNode jsonDoc) throws IOException {
+        return httpClient.buildPutRequest("/id/" + docId).entity(jsonDoc.asJson()).execute();
+    }
+
+    protected CloseableHttpResponse putJSONDocumentAsUser1(String docId, JSONDocumentNode jsonDoc) throws IOException {
+        return httpClient.buildPutRequest("/id/" + docId)
+                         .credentials("user1", "user1")
+                         .entity(jsonDoc.asJson())
+                         .execute();
     }
 
     protected void assertBlobContent(String docId, String expectedContent) throws IOException {

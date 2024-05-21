@@ -19,6 +19,8 @@
  */
 package org.nuxeo.ecm.restapi.test;
 
+import static org.apache.http.HttpStatus.SC_NOT_FOUND;
+import static org.apache.http.HttpStatus.SC_OK;
 import static org.junit.Assert.assertEquals;
 
 import java.io.Serializable;
@@ -28,14 +30,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
 
+import javax.inject.Inject;
+
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.nuxeo.ecm.core.api.Blob;
 import org.nuxeo.ecm.core.api.Blobs;
+import org.nuxeo.ecm.core.api.CoreSession;
 import org.nuxeo.ecm.core.api.DocumentModel;
 import org.nuxeo.ecm.core.test.annotations.Granularity;
 import org.nuxeo.ecm.core.test.annotations.RepositoryConfig;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.HttpStatusCodeHandler;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
@@ -51,7 +58,17 @@ import org.nuxeo.runtime.transaction.TransactionHelper;
 @Deploy("org.nuxeo.ecm.platform.convert")
 @Deploy("org.nuxeo.ecm.platform.preview")
 @Deploy("org.nuxeo.ecm.platform.htmlsanitizer")
-public class PreviewAdapterTest extends BaseTest {
+public class PreviewAdapterTest {
+
+    @Inject
+    protected CoreSession session;
+
+    @Inject
+    protected RestServerFeature restServerFeature;
+
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.defaultClient(
+            () -> restServerFeature.getRestApiUrl());
 
     @Test
     public void testFilePreview() {
@@ -62,12 +79,8 @@ public class PreviewAdapterTest extends BaseTest {
         TransactionHelper.commitOrRollbackTransaction();
         TransactionHelper.startTransaction();
 
-        try (CloseableClientResponse response = getPreview(doc)) {
-            assertEquals(200, response.getStatus());
-        }
-        try (CloseableClientResponse response = getPreview(doc, "file:content")) {
-            assertEquals(200, response.getStatus());
-        }
+        getAndAssertPreviewStatusCode(SC_OK, doc);
+        getAndAssertPreviewStatusCode(SC_OK, doc, "file:content");
     }
 
     @Test
@@ -81,13 +94,9 @@ public class PreviewAdapterTest extends BaseTest {
         TransactionHelper.commitOrRollbackTransaction();
         TransactionHelper.startTransaction();
 
-        try (CloseableClientResponse response = getPreview(doc, "files:files/0/file")) {
-            assertEquals(200, response.getStatus());
-        }
+        getAndAssertPreviewStatusCode(SC_OK, doc, "files:files/0/file");
         // works also without schema prefix (COMPAT)
-        try (CloseableClientResponse response = getPreview(doc, "files/0/file")) {
-            assertEquals(200, response.getStatus());
-        }
+        getAndAssertPreviewStatusCode(SC_OK, doc, "files/0/file");
     }
 
     @Test
@@ -99,12 +108,8 @@ public class PreviewAdapterTest extends BaseTest {
         TransactionHelper.commitOrRollbackTransaction();
         TransactionHelper.startTransaction();
 
-        try (CloseableClientResponse response = getPreview(doc)) {
-            assertEquals(200, response.getStatus());
-        }
-        try (CloseableClientResponse response = getPreview(doc, "note:note")) {
-            assertEquals(200, response.getStatus());
-        }
+        getAndAssertPreviewStatusCode(SC_OK, doc);
+        getAndAssertPreviewStatusCode(SC_OK, doc, "note:note");
     }
 
     @Test
@@ -114,12 +119,8 @@ public class PreviewAdapterTest extends BaseTest {
         TransactionHelper.commitOrRollbackTransaction();
         TransactionHelper.startTransaction();
 
-        try (CloseableClientResponse response = getPreview(doc)) {
-            assertEquals(404, response.getStatus());
-        }
-        try (CloseableClientResponse response = getPreview(doc, "file:content")) {
-            assertEquals(404, response.getStatus());
-        }
+        getAndAssertPreviewStatusCode(SC_NOT_FOUND, doc);
+        getAndAssertPreviewStatusCode(SC_NOT_FOUND, doc, "file:content");
     }
 
     @Deploy("org.nuxeo.ecm.platform.restapi.test:preview-doctype.xml")
@@ -130,9 +131,7 @@ public class PreviewAdapterTest extends BaseTest {
         TransactionHelper.commitOrRollbackTransaction();
         TransactionHelper.startTransaction();
 
-        try (CloseableClientResponse response = getPreview(doc)) {
-            assertEquals(404, response.getStatus());
-        }
+        getAndAssertPreviewStatusCode(SC_NOT_FOUND, doc);
     }
 
     @Test
@@ -144,24 +143,22 @@ public class PreviewAdapterTest extends BaseTest {
         TransactionHelper.commitOrRollbackTransaction();
         TransactionHelper.startTransaction();
 
-        try (CloseableClientResponse response = getPreview(doc)) {
-            assertEquals(404, response.getStatus());
-        }
-        try (CloseableClientResponse response = getPreview(doc, "file:content")) {
-            assertEquals(404, response.getStatus());
-        }
+        getAndAssertPreviewStatusCode(SC_NOT_FOUND, doc);
+        getAndAssertPreviewStatusCode(SC_NOT_FOUND, doc, "file:content");
     }
 
-    protected CloseableClientResponse getPreview(DocumentModel doc) {
-        return getPreview(doc, null);
+    protected void getAndAssertPreviewStatusCode(int statusCode, DocumentModel doc) {
+        getAndAssertPreviewStatusCode(statusCode, doc, null);
     }
 
-    protected CloseableClientResponse getPreview(DocumentModel doc, String xpath) {
+    protected void getAndAssertPreviewStatusCode(int statusCode, DocumentModel doc, String xpath) {
         StringJoiner path = new StringJoiner("/").add("id").add(doc.getId());
         if (xpath != null) {
             path.add("@blob").add(xpath);
         }
         path.add("@preview");
-        return getResponse(RequestType.GET, path.toString());
+        httpClient.buildGetRequest(path.toString())
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(statusCode, status.intValue()));
     }
 }

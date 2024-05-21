@@ -24,7 +24,7 @@ import static org.nuxeo.wopi.Headers.OVERRIDE;
 import java.util.Map;
 
 import org.junit.Test;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.CloseableHttpResponse;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.wopi.Operation;
 
@@ -39,21 +39,21 @@ public class TestDenyDownloadPolicy extends AbstractTestFilesEndpoint {
     public void testWithDenyDownloadPolicy() {
         // CheckFileInfo
         // cannot download the blob, even if john has write access
-        try (CloseableClientResponse response = get(johnToken, blobDocFileId)) {
+        try (CloseableHttpResponse response = get(johnToken, blobDocFileId)) {
             assertEquals(404, response.getStatus());
         }
         // cannot download the blob, even if joe has read access
-        try (CloseableClientResponse response = get(joeToken, blobDocFileId)) {
+        try (CloseableHttpResponse response = get(joeToken, blobDocFileId)) {
             assertEquals(404, response.getStatus());
         }
 
         // GetFile
         // cannot download the blob, even if john has write access
-        try (CloseableClientResponse response = get(johnToken, blobDocFileId, CONTENTS_PATH)) {
+        try (CloseableHttpResponse response = get(johnToken, blobDocFileId, CONTENTS_PATH)) {
             assertEquals(404, response.getStatus());
         }
         // cannot download the blob, even if joe has read access
-        try (CloseableClientResponse response = get(joeToken, blobDocFileId, CONTENTS_PATH)) {
+        try (CloseableHttpResponse response = get(joeToken, blobDocFileId, CONTENTS_PATH)) {
             assertEquals(404, response.getStatus());
         }
 
@@ -61,7 +61,7 @@ public class TestDenyDownloadPolicy extends AbstractTestFilesEndpoint {
         String data = "new content";
         Map<String, String> headers = Map.of(OVERRIDE, Operation.PUT.name());
         // cannot download the blob, so cannot use the PutFile WOPI operation even if john has write access
-        try (CloseableClientResponse response = post(johnToken, data, headers, zeroLengthBlobDocFileId,
+        try (CloseableHttpResponse response = post(johnToken, data, headers, zeroLengthBlobDocFileId,
                 CONTENTS_PATH)) {
             assertEquals(404, response.getStatus());
         }

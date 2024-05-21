@@ -24,7 +24,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 
 import javax.servlet.http.HttpServletResponse;
@@ -32,10 +31,9 @@ import javax.servlet.http.HttpServletResponse;
 import org.junit.Test;
 import org.nuxeo.ecm.core.event.test.CapturingEventListener;
 import org.nuxeo.ecm.restapi.test.ManagementBaseTest;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.handler.HttpStatusCodeHandler;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.test.runner.Deploy;
-
-import com.fasterxml.jackson.databind.JsonNode;
 
 /**
  * @since 2023.3
@@ -44,17 +42,15 @@ import com.fasterxml.jackson.databind.JsonNode;
 public class TestSchedulerObject extends ManagementBaseTest {
 
     @Test
-    public void testGetSchedulerTasks() throws IOException {
-        try (CloseableClientResponse response = httpClientRule.get("/management/scheduler")) {
-            assertEquals(HttpServletResponse.SC_OK, response.getStatus());
-            JsonNode taskList = mapper.readTree(response.getEntityInputStream());
+    public void testGetSchedulerTasks() {
+        httpClient.buildGetRequest("/management/scheduler").executeAndConsume(new JsonNodeHandler(), taskList -> {
             assertTrue(taskList.has("entries"));
             var schedules = taskList.get("entries");
             assertFalse(schedules.isEmpty());
             var schedule = schedules.get(0);
             assertFalse(schedule.get("id").asText().isEmpty());
             assertFalse(schedule.get("cronExpression").asText().isEmpty());
-        }
+        });
     }
 
     @Test
@@ -62,14 +58,14 @@ public class TestSchedulerObject extends ManagementBaseTest {
     public void testStopAndStartScheduler() {
         try (CapturingEventListener listener = new CapturingEventListener("everySecond")) {
             await().atMost(2, TimeUnit.SECONDS).until(() -> listener.hasBeenFired("everySecond"));
-            try (CloseableClientResponse response = httpClientRule.put("/management/scheduler/stop", null)) {
-                assertEquals(HttpServletResponse.SC_NO_CONTENT, response.getStatus());
-            }
+            httpClient.buildPutRequest("/management/scheduler/stop")
+                      .executeAndConsume(new HttpStatusCodeHandler(),
+                              status -> assertEquals(HttpServletResponse.SC_NO_CONTENT, status.intValue()));
             listener.clear();
             await().pollDelay(1200, TimeUnit.MILLISECONDS).until(() -> !listener.hasBeenFired("everySecond"));
-            try (CloseableClientResponse response = httpClientRule.put("/management/scheduler/start", null)) {
-                assertEquals(HttpServletResponse.SC_NO_CONTENT, response.getStatus());
-            }
+            httpClient.buildPutRequest("/management/scheduler/start")
+                      .executeAndConsume(new HttpStatusCodeHandler(),
+                              status -> assertEquals(HttpServletResponse.SC_NO_CONTENT, status.intValue()));
             listener.clear();
             await().atMost(2, TimeUnit.SECONDS).until(() -> listener.hasBeenFired("everySecond"));
         }

@@ -25,15 +25,11 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.nuxeo.ecm.core.io.registry.MarshallingConstants.ENTITY_FIELD_NAME;
 
-import java.io.IOException;
-
-import javax.servlet.http.HttpServletResponse;
-
 import org.junit.Test;
 import org.nuxeo.common.Environment;
 import org.nuxeo.ecm.restapi.jaxrs.io.management.SimplifiedServerInfoJsonWriter;
 import org.nuxeo.ecm.restapi.test.ManagementBaseTest;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.test.runner.WithFrameworkProperty;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -62,11 +58,8 @@ public class TestDistributionObject extends ManagementBaseTest {
     @WithFrameworkProperty(name = Environment.DISTRIBUTION_VERSION, value = DISTRIBUTION_VERSION)
     @WithFrameworkProperty(name = Environment.DISTRIBUTION_SERVER, value = DISTRIBUTION_SERVER)
     @WithFrameworkProperty(name = Environment.DISTRIBUTION_DATE, value = DISTRIBUTION_DATE)
-    public void testDistribution() throws IOException {
-        try (CloseableClientResponse response = httpClientRule.get("/management/distribution")) {
-            assertEquals(HttpServletResponse.SC_OK, response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-
+    public void testDistribution() {
+        httpClient.buildGetRequest("/management/distribution").executeAndConsume(new JsonNodeHandler(), node -> {
             assertEquals(SimplifiedServerInfoJsonWriter.ENTITY_TYPE, node.get(ENTITY_FIELD_NAME).asText());
             assertEquals(PRODUCT_NAME, node.get("applicationName").asText());
             assertEquals(PRODUCT_VERSION, node.get("applicationVersion").asText());
@@ -85,6 +78,6 @@ public class TestDistributionObject extends ManagementBaseTest {
             value = node.get("bundles");
             assertNotNull(value);
             assertTrue(value.isArray());
-        }
+        });
     }
 }

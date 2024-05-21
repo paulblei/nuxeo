@@ -21,18 +21,17 @@
 package org.nuxeo.ecm.restapi.server.jaxrs.management;
 
 import static javax.servlet.http.HttpServletResponse.SC_NOT_FOUND;
-import static javax.servlet.http.HttpServletResponse.SC_OK;
 import static org.junit.Assert.assertEquals;
 
 import java.io.IOException;
 
 import org.junit.Test;
+import org.nuxeo.common.function.ThrowableConsumer;
 import org.nuxeo.ecm.core.io.marshallers.json.JsonAssert;
 import org.nuxeo.ecm.restapi.test.ManagementBaseTest;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.handler.HttpStatusCodeHandler;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.test.runner.Deploy;
-
-import com.fasterxml.jackson.databind.JsonNode;
 
 /**
  * @since 11.3
@@ -41,57 +40,52 @@ import com.fasterxml.jackson.databind.JsonNode;
 public class TestProbesObject extends ManagementBaseTest {
 
     @Test
-    public void testAllProbes() throws IOException {
-        try (CloseableClientResponse response = httpClientRule.get("/management/probes")) {
-            assertEquals(SC_OK, response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            JsonAssert jAssert = JsonAssert.on(node.toString());
-            jAssert.get("entity-type").isEquals("probes");
-            JsonAssert jProbeArray = jAssert.get("entries");
+    public void testAllProbes() {
+        httpClient.buildGetRequest("/management/probes")
+                  .executeAndConsume(new JsonNodeHandler(), ThrowableConsumer.asConsumer(node -> {
+                      JsonAssert jAssert = JsonAssert.on(node.toString());
+                      jAssert.get("entity-type").isEquals("probes");
+                      JsonAssert jProbeArray = jAssert.get("entries");
 
-            JsonAssert jProbe = jProbeArray.get(0);
-            testProbeInfo(jProbe);
-        }
+                      JsonAssert jProbe = jProbeArray.get(0);
+                      testProbeInfo(jProbe);
+                  }));
     }
 
     @Test
-    public void testProbe() throws IOException {
-        try (CloseableClientResponse response = httpClientRule.get("/management/probes/administrativeStatus")) {
-            assertEquals(SC_OK, response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            JsonAssert jAssert = JsonAssert.on(node.toString());
-            testProbeInfo(jAssert);
-        }
+    public void testProbe() {
+        httpClient.buildGetRequest("/management/probes/administrativeStatus")
+                  .executeAndConsume(new JsonNodeHandler(), ThrowableConsumer.asConsumer(node -> {
+                      JsonAssert jAssert = JsonAssert.on(node.toString());
+                      testProbeInfo(jAssert);
+                  }));
     }
 
     @Test
-    public void testLaunchProbe() throws IOException {
-        try (CloseableClientResponse response = httpClientRule.get("/management/probes/administrativeStatus")) {
-            assertEquals(SC_OK, response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals(0, node.get("counts").get("run").asInt());
-        }
-        try (CloseableClientResponse response = httpClientRule.post("/management/probes/administrativeStatus", null)) {
-            assertEquals(SC_OK, response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            JsonAssert jAssert = JsonAssert.on(node.toString());
-            testProbeInfo(jAssert);
-            assertEquals(1, node.get("counts").get("run").asInt());
-        }
+    public void testLaunchProbe() {
+        httpClient.buildGetRequest("/management/probes/administrativeStatus")
+                  .executeAndConsume(new JsonNodeHandler(),
+                          node -> assertEquals(0, node.get("counts").get("run").asInt()));
+        httpClient.buildPostRequest("/management/probes/administrativeStatus")
+                  .executeAndConsume(new JsonNodeHandler(), ThrowableConsumer.asConsumer(node -> {
+                      JsonAssert jAssert = JsonAssert.on(node.toString());
+                      testProbeInfo(jAssert);
+                      assertEquals(1, node.get("counts").get("run").asInt());
+                  }));
     }
 
     @Test
     public void testGetWrongProbe() {
-        try (CloseableClientResponse response = httpClientRule.get("/management/probes/fake")) {
-            assertEquals(SC_NOT_FOUND, response.getStatus());
-        }
+        httpClient.buildGetRequest("/management/probes/fake")
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_NOT_FOUND, status.intValue()));
     }
 
     @Test
     public void testLaunchWrongProbe() {
-        try (CloseableClientResponse response = httpClientRule.post("/management/probes/fake", null)) {
-            assertEquals(SC_NOT_FOUND, response.getStatus());
-        }
+        httpClient.buildPostRequest("/management/probes/fake")
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_NOT_FOUND, status.intValue()));
     }
 
     protected void testProbeInfo(JsonAssert jProbe) throws IOException {

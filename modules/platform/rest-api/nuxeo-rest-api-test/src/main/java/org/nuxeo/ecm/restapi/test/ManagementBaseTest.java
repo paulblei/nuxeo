@@ -20,7 +20,6 @@
 package org.nuxeo.ecm.restapi.test;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static javax.ws.rs.core.MediaType.WILDCARD;
 import static org.apache.commons.io.FileUtils.readFileToString;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -34,20 +33,17 @@ import java.time.Instant;
 import javax.inject.Inject;
 
 import org.json.JSONException;
-import org.junit.After;
-import org.junit.Before;
+import org.junit.Rule;
 import org.junit.runner.RunWith;
 import org.nuxeo.common.utils.FileUtils;
 import org.nuxeo.ecm.core.bulk.message.BulkStatus;
-import org.nuxeo.jaxrs.test.HttpClientTestRule;
+import org.nuxeo.http.test.HttpClientTestRule;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
-import org.nuxeo.runtime.test.runner.ServletContainerFeature;
 import org.nuxeo.runtime.test.runner.TransactionalFeature;
 import org.skyscreamer.jsonassert.JSONAssert;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * @since 11.3
@@ -57,30 +53,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public abstract class ManagementBaseTest {
 
     @Inject
-    protected ServletContainerFeature servletContainerFeature;
+    protected RestServerFeature restServerFeature;
 
     @Inject
     protected TransactionalFeature txFeature;
 
-    protected ObjectMapper mapper = new ObjectMapper();
-
-    protected HttpClientTestRule httpClientRule;
-
-    protected HttpClientTestRule.Builder getRuleBuilder() {
-        String url = String.format("http://localhost:%d/api/v1", servletContainerFeature.getPort());
-        return new HttpClientTestRule.Builder().url(url).accept(WILDCARD).credentials("Administrator", "Administrator");
-    }
-
-    @Before
-    public void before() {
-        httpClientRule = getRuleBuilder().build();
-        httpClientRule.starting();
-    }
-
-    @After
-    public void after() {
-        httpClientRule.finished();
-    }
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.defaultClient(
+            () -> restServerFeature.getRestApiUrl());
 
     protected void assertJsonResponse(String actual, String expectedFile) throws IOException, JSONException {
         File file = FileUtils.getResourceFileFromContext(expectedFile);

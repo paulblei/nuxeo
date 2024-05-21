@@ -33,7 +33,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 /**
  * @since 5.7.3
  */
-public class BaseUserTest extends BaseTest {
+public class BaseUserTest {
 
     /**
      * Returns the json representation of a group

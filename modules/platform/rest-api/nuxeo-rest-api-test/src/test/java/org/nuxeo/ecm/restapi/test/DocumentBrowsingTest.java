@@ -18,6 +18,12 @@
  */
 package org.nuxeo.ecm.restapi.test;
 
+import static org.apache.http.HttpStatus.SC_BAD_REQUEST;
+import static org.apache.http.HttpStatus.SC_CONFLICT;
+import static org.apache.http.HttpStatus.SC_CREATED;
+import static org.apache.http.HttpStatus.SC_NOT_FOUND;
+import static org.apache.http.HttpStatus.SC_NO_CONTENT;
+import static org.apache.http.HttpStatus.SC_OK;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -27,7 +33,6 @@ import static org.nuxeo.ecm.core.io.marshallers.json.document.DocumentModelJsonW
 import static org.nuxeo.ecm.core.io.registry.MarshallingConstants.FETCH_PROPERTIES;
 import static org.nuxeo.ecm.core.io.registry.MarshallingConstants.HEADER_PREFIX;
 
-import java.io.IOException;
 import java.io.Serializable;
 import java.util.Arrays;
 import java.util.Calendar;
@@ -36,16 +41,20 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-import javax.ws.rs.core.Response;
+import javax.inject.Inject;
+import javax.ws.rs.core.MediaType;
 
 import org.apache.commons.lang3.StringUtils;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.nuxeo.common.function.ThrowableConsumer;
 import org.nuxeo.ecm.collections.api.CollectionManager;
 import org.nuxeo.ecm.collections.api.FavoritesManager;
 import org.nuxeo.ecm.collections.core.io.CollectionsJsonEnricher;
 import org.nuxeo.ecm.collections.core.io.FavoritesJsonEnricher;
 import org.nuxeo.ecm.core.api.Blob;
+import org.nuxeo.ecm.core.api.CoreSession;
 import org.nuxeo.ecm.core.api.DocumentModel;
 import org.nuxeo.ecm.core.api.IdRef;
 import org.nuxeo.ecm.core.api.VersioningOption;
@@ -65,12 +74,14 @@ import org.nuxeo.ecm.platform.tag.TagService;
 import org.nuxeo.ecm.platform.tag.io.TagsJsonEnricher;
 import org.nuxeo.ecm.platform.thumbnail.io.ThumbnailJsonEnricher;
 import org.nuxeo.ecm.restapi.jaxrs.io.RestConstants;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.HttpStatusCodeHandler;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.api.Framework;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
-import org.nuxeo.runtime.transaction.TransactionHelper;
+import org.nuxeo.runtime.test.runner.TransactionalFeature;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -88,101 +99,103 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 @Deploy("org.nuxeo.ecm.permissions:OSGI-INF/marshallers-contrib.xml")
 @Deploy("org.nuxeo.ecm.platform.collections.core")
 @Deploy("org.nuxeo.ecm.platform.userworkspace")
-public class DocumentBrowsingTest extends BaseTest {
+public class DocumentBrowsingTest {
+
+    @Inject
+    protected CoreSession session;
+
+    @Inject
+    protected RestServerFeature restServerFeature;
+
+    @Inject
+    protected TransactionalFeature transactionalFeature;
+
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.builder()
+                                                                   .url(() -> restServerFeature.getRestApiUrl())
+                                                                   .adminCredentials()
+                                                                   .contentType(MediaType.APPLICATION_JSON)
+                                                                   .header("X-NXDocumentProperties", "dublincore")
+                                                                   .build();
 
     @Test
-    public void iCanBrowseTheRepoByItsPath() throws Exception {
+    public void iCanBrowseTheRepoByItsPath() {
         // Given an existing document
         DocumentModel note = RestServerInit.getNote(0, session);
-
         // When i do a GET Request
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "path" + note.getPathAsString())) {
-            // Then i get a document
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            assertEntityEqualsDoc(response.getEntityInputStream(), note);
-        }
+        httpClient.buildGetRequest("/path" + note.getPathAsString())
+                  .executeAndConsume(new JsonNodeHandler(),
+                          // Then i get a document
+                          node -> assertDocumentEqualsNode(note, node));
     }
 
     @Test
-    public void iCanBrowseTheRepoByItsId() throws Exception {
+    public void iCanBrowseTheRepoByItsId() {
         // Given a document
         DocumentModel note = RestServerInit.getNote(0, session);
-
         // When i do a GET Request
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "id/" + note.getId())) {
-
-            // Then i get the document as Json
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            assertEntityEqualsDoc(response.getEntityInputStream(), note);
-        }
+        httpClient.buildGetRequest("/id/" + note.getId())
+                  .executeAndConsume(new JsonNodeHandler(),
+                          // Then i get a document
+                          node -> assertDocumentEqualsNode(note, node));
     }
 
     @Test
-    public void iCanGetTheChildrenOfADoc() throws Exception {
+    public void iCanGetTheChildrenOfADoc() {
         // Given a folder with one document
         DocumentModel folder = RestServerInit.getFolder(0, session);
         DocumentModel child = session.createDocumentModel(folder.getPathAsString(), "note", "Note");
         child = session.createDocument(child);
-        TransactionHelper.commitOrRollbackTransaction();
-        TransactionHelper.startTransaction();
+        transactionalFeature.nextTransaction();
 
+        DocumentModel childFinal = child;
         // When i call a GET on the children for that doc
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "id/" + folder.getId() + "/@children")) {
-
-            // Then i get the only document of the folder
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            Iterator<JsonNode> elements = node.get("entries").elements();
-            node = elements.next();
-
-            assertNodeEqualsDoc(node, child);
-        }
+        httpClient.buildGetRequest("/id/" + folder.getId() + "/@children")
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      // Then i get the only document of the folder
+                      Iterator<JsonNode> elements = node.get("entries").elements();
+                      node = elements.next();
+                      assertDocumentEqualsNode(childFinal, node);
+                  });
     }
 
     @Test
     public void iCanUpdateADocument() throws Exception {
-        JSONDocumentNode jsonDoc;
-
         // Given a document
         DocumentModel note = RestServerInit.getNote(0, session);
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "id/" + note.getId())) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            jsonDoc = new JSONDocumentNode(response.getEntityInputStream());
-        }
-
-        // When i do a PUT request on the document with modified data
-        // and the same change token
-        String changeToken = jsonDoc.node.get("changeToken").asText();
-        assertNotNull(changeToken);
+        JSONDocumentNode jsonDoc = httpClient.buildGetRequest("/id/" + note.getId())
+                                             .addHeader("X-NXDocumentProperties", "dublincore")
+                                             .executeAndThen(new JSONDocumentNodeHandler(), json -> {
+                                                 // When i do a PUT request on the document with modified data
+                                                 // and the same change token
+                                                 String changeToken = json.node.get("changeToken").asText();
+                                                 assertNotNull(changeToken);
+                                                 return json;
+                                             });
         jsonDoc.setPropertyValue("dc:title", "New title");
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "id/" + note.getId(), jsonDoc.asJson())) {
-
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            // Then the document is updated
-            fetchInvalidations();
-            note = RestServerInit.getNote(0, session);
-            assertEquals("New title", note.getTitle());
-        }
+        httpClient.buildPutRequest("/id/" + note.getId())
+                  .entity(jsonDoc.asJson())
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(SC_OK, status.intValue()));
+        // Then the document is updated
+        transactionalFeature.nextTransaction();
+        note = RestServerInit.getNote(0, session);
+        assertEquals("New title", note.getTitle());
     }
 
     @Test
     public void iCanUpdateADocumentWithAComment() throws Exception {
-        JSONDocumentNode jsonDoc;
         DocumentModel note = RestServerInit.getNote(0, session);
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "id/" + note.getId())) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            jsonDoc = new JSONDocumentNode(response.getEntityInputStream());
-        }
-
+        JSONDocumentNode jsonDoc = httpClient.buildGetRequest("/id/" + note.getId())
+                                             .addHeader("X-NXDocumentProperties", "dublincore")
+                                             .execute(new JSONDocumentNodeHandler());
         jsonDoc.setPropertyValue("dc:title", "Another title");
-        Map<String, String> headers = new HashMap<>();
-        headers.put(RestConstants.UPDATE_COMMENT_HEADER, "a simple comment");
-        try (CapturingEventListener listener = new CapturingEventListener(DocumentEventTypes.BEFORE_DOC_UPDATE);
-                CloseableClientResponse response = getResponse(RequestType.PUT, "id/" + note.getId(), jsonDoc.asJson(),
-                        headers)) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        try (CapturingEventListener listener = new CapturingEventListener(DocumentEventTypes.BEFORE_DOC_UPDATE)) {
+            httpClient.buildPutRequest("/id/" + note.getId())
+                      .addHeader(RestConstants.UPDATE_COMMENT_HEADER, "a simple comment")
+                      .entity(jsonDoc.asJson())
+                      .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(SC_OK, status.intValue()));
 
-            fetchInvalidations();
+            transactionalFeature.nextTransaction();
             note = RestServerInit.getNote(0, session);
             assertEquals("Another title", note.getTitle());
             EventContext ctx = listener.findLastCapturedEventContextOrElseThrow();
@@ -192,34 +205,30 @@ public class DocumentBrowsingTest extends BaseTest {
 
     @Test
     public void iCannotUpdateADocumentWithOldChangeToken() throws Exception {
-        JSONDocumentNode jsonDoc;
-
         // Given a document
         DocumentModel note = RestServerInit.getNote(0, session);
         String noteId = note.getId();
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "id/" + noteId)) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            jsonDoc = new JSONDocumentNode(response.getEntityInputStream());
-        }
+        JSONDocumentNode jsonDoc = httpClient.buildGetRequest("/id/" + noteId)
+                                             .addHeader("X-NXDocumentProperties", "dublincore")
+                                             .execute(new JSONDocumentNodeHandler());
 
-        // When i do a PUT request on the document with modified data
-        // and pass an old/invalid change token
+        // When i do a PUT request on the document with modified data and pass an old/invalid change token
         jsonDoc.setPropertyValue("dc:title", "New title");
         jsonDoc.node.put("changeToken", "9999-1234"); // old/invalid change token
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "id/" + noteId, jsonDoc.asJson())) {
 
-            // Then we get a 409 CONFLICT
-            assertEquals(Response.Status.CONFLICT.getStatusCode(), response.getStatus());
-            // Assert the response is a JSON entity
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            String error = getErrorMessage(node);
-            assertEquals(noteId + ", Invalid change token", error);
+        // Then we get a 409 CONFLICT
+        httpClient.buildPutRequest("/id/" + noteId)
+                  .entity(jsonDoc.asJson())
+                  .executeAndConsume(new JsonNodeHandler(SC_CONFLICT), node -> {
+                      // Assert the response is a JSON entity
+                      String error = JsonNodeHelper.getErrorMessage(node);
+                      assertEquals(noteId + ", Invalid change token", error);
+                  });
 
-            // And the document is NOT updated
-            fetchInvalidations();
-            note = RestServerInit.getNote(0, session);
-            assertEquals("Note 0", note.getTitle()); // still old title
-        }
+        // And the document is NOT updated
+        transactionalFeature.nextTransaction();
+        note = RestServerInit.getNote(0, session);
+        assertEquals("Note 0", note.getTitle()); // still old title
     }
 
     @Test
@@ -230,89 +239,81 @@ public class DocumentBrowsingTest extends BaseTest {
         doc.setProperty("file", "content", blob);
         doc.setPropertyValue("dc:title", "my Title");
         doc = session.createDocument(doc);
-        fetchInvalidations();
+        transactionalFeature.nextTransaction();
 
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "id/" + doc.getId())) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-        }
+        var statusCodeHandler = new HttpStatusCodeHandler();
+        httpClient.buildGetRequest("/id/" + doc.getId())
+                  .executeAndConsume(statusCodeHandler, status -> assertEquals(SC_OK, status.intValue()));
 
-        String payload = "{" //
-                + "         \"entity-type\": \"document\"," //
-                + "         \"state\": \"project\"," //
-                + "         \"title\": \"New title\"," //
-                + "         \"properties\": {" //
-                + "             \"dc:description\":\"blabla\"," //
-                + "             \"dc:title\":\"New title\"" //
-                + "           }" //
-                + "       }";
+        String payload = """
+                {
+                  "entity-type": "document",
+                  "state": "project",
+                  "title": "New title",
+                  "properties": {
+                    "dc:description": "blabla",
+                    "dc:title": "New title"
+                  }
+                }
+                """;
+        httpClient.buildPutRequest("/id/" + doc.getId())
+                  .entity(payload)
+                  .executeAndConsume(statusCodeHandler, status -> assertEquals(SC_OK, status.intValue()));
 
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "id/" + doc.getId(), payload)) {
+        // Then the document is updated
+        transactionalFeature.nextTransaction();
 
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            // Then the document is updated
-            fetchInvalidations();
-
-            doc = session.getDocument(new IdRef(doc.getId()));
-            assertEquals("New title", doc.getTitle());
-            Blob value = (Blob) doc.getPropertyValue("file:content");
-            assertNotNull(value);
-            assertEquals("test.txt", value.getFilename());
-        }
+        doc = session.getDocument(new IdRef(doc.getId()));
+        assertEquals("New title", doc.getTitle());
+        Blob value = (Blob) doc.getPropertyValue("file:content");
+        assertNotNull(value);
+        assertEquals("test.txt", value.getFilename());
     }
 
     @Test
     public void iCanUpdateDocumentVersion() throws Exception {
-        JSONDocumentNode jsonDoc;
-
         // Given a document
         DocumentModel note = RestServerInit.getNote(0, session);
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "id/" + note.getId())) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        // Check the current version of the live document
+        // it's a note - version at creation and for each updates
+        assertEquals("0.1", note.getVersionLabel());
 
-            // Check the current version of the live document
-            // it's a note - version at creation and for each updates
-            assertEquals("0.1", note.getVersionLabel());
-
-            jsonDoc = new JSONDocumentNode(response.getEntityInputStream());
-        }
+        JSONDocumentNode jsonDoc = httpClient.buildGetRequest("/id/" + note.getId())
+                                             .addHeader("X-NXDocumentProperties", "dublincore")
+                                             .execute(new JSONDocumentNodeHandler());
 
         // When i do a PUT request on the document with modified version in the header
         jsonDoc.setPropertyValue("dc:title", "New title !");
-        Map<String, String> headers = new HashMap<>();
-        headers.put(RestConstants.X_VERSIONING_OPTION, VersioningOption.MAJOR.toString());
-        headers.put(HEADER_PREFIX + FETCH_PROPERTIES + "." + ENTITY_TYPE, "versionLabel");
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "id/" + note.getId(), jsonDoc.asJson(),
-                headers)) {
+        httpClient.buildPutRequest("/id/" + note.getId())
+                  .addHeader(RestConstants.X_VERSIONING_OPTION, VersioningOption.MAJOR.toString())
+                  .addHeader(HEADER_PREFIX + FETCH_PROPERTIES + "." + ENTITY_TYPE, "versionLabel")
+                  .entity(jsonDoc.asJson())
+                  .executeAndConsume(new JsonNodeHandler(),
+                          // Check if the version of the document has been returned
+                          node -> assertEquals("1.0", node.get("versionLabel").asText()));
 
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            // Check if the version of the document has been returned
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals("1.0", node.get("versionLabel").asText());
-
-            // Check if the original document is still not versioned.
-            note = RestServerInit.getNote(0, session);
-            assertEquals("0.1", note.getVersionLabel());
-        }
+        // Check if the original document is still not versioned.
+        note = RestServerInit.getNote(0, session);
+        assertEquals("0.1", note.getVersionLabel());
     }
 
     @Test
     public void itCanUpdateADocumentWithoutSpecifyingIdInJSONPayload() {
+        var statusCodeHandler = new HttpStatusCodeHandler();
         // Given a document
         DocumentModel note = RestServerInit.getNote(0, session);
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "path" + note.getPathAsString())) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildGetRequest("/path" + note.getPathAsString())
+                  .executeAndConsume(statusCodeHandler, status -> assertEquals(SC_OK, status.intValue()));
 
         // When i do a PUT request on the document with modified data
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "id/" + note.getId(),
-                "{\"entity-type\":\"document\",\"properties\":{\"dc:title\":\"Other New title\"}}")) {
+        httpClient.buildPutRequest("/id/" + note.getId())
+                  .entity("{\"entity-type\":\"document\",\"properties\":{\"dc:title\":\"Other New title\"}}")
+                  .executeAndConsume(statusCodeHandler, status -> assertEquals(SC_OK, status.intValue()));
 
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            // Then the document is updated
-            fetchInvalidations();
-            note = RestServerInit.getNote(0, session);
-            assertEquals("Other New title", note.getTitle());
-        }
+        // Then the document is updated
+        transactionalFeature.nextTransaction();
+        note = RestServerInit.getNote(0, session);
+        assertEquals("Other New title", note.getTitle());
     }
 
     @Test
@@ -322,19 +323,18 @@ public class DocumentBrowsingTest extends BaseTest {
         note.setPropertyValue("dc:language", "a value that must not be reseted");
         session.saveDocument(note);
 
-        fetchInvalidations();
+        transactionalFeature.nextTransaction();
 
         // When i do a PUT request on the document with modified data
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "id/" + note.getId(),
-                "{\"entity-type\":\"document\",\"properties\":{\"dc:format\":null}}")) {
+        httpClient.buildPutRequest("/id/" + note.getId())
+                  .entity("{\"entity-type\":\"document\",\"properties\":{\"dc:format\":null}}")
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(SC_OK, status.intValue()));
 
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            // Then the document is updated
-            fetchInvalidations();
-            note = RestServerInit.getNote(0, session);
-            assertNull(note.getPropertyValue("dc:format"));
-            assertEquals("a value that must not be reseted", note.getPropertyValue("dc:language"));
-        }
+        // Then the document is updated
+        transactionalFeature.nextTransaction();
+        note = RestServerInit.getNote(0, session);
+        assertNull(note.getPropertyValue("dc:format"));
+        assertEquals("a value that must not be reseted", note.getPropertyValue("dc:language"));
     }
 
     @Test
@@ -343,21 +343,20 @@ public class DocumentBrowsingTest extends BaseTest {
         note.setPropertyValue("dc:format", "a value that will be set to null");
         session.saveDocument(note);
 
-        fetchInvalidations();
+        transactionalFeature.nextTransaction();
 
         // When i do a PUT request on the document with modified data
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "id/" + note.getId(),
-                "{\"entity-type\":\"document\",\"properties\":{\"dc:format\":\"\"}}")) {
+        httpClient.buildPutRequest("/id/" + note.getId())
+                  .entity("{\"entity-type\":\"document\",\"properties\":{\"dc:format\":\"\"}}")
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(SC_OK, status.intValue()));
 
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            // Then the document is updated
-            fetchInvalidations();
-            note = RestServerInit.getNote(0, session);
-            Serializable value = note.getPropertyValue("dc:format");
-            if (!"".equals(value)) {
-                // will be NULL for Oracle, where empty string and NULL are the same thing
-                assertNull(value);
-            }
+        // Then the document is updated
+        transactionalFeature.nextTransaction();
+        note = RestServerInit.getNote(0, session);
+        Serializable value = note.getPropertyValue("dc:format");
+        if (!"".equals(value)) {
+            // will be NULL for Oracle, where empty string and NULL are the same thing
+            assertNull(value);
         }
     }
 
@@ -371,19 +370,19 @@ public class DocumentBrowsingTest extends BaseTest {
         doc.setPropertyValue("dv:complexWithoutDefault/foo", "val1");
         doc.setPropertyValue("dv:complexWithoutDefault/bar", "val2");
         doc = session.createDocument(doc);
-        fetchInvalidations();
 
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "id/" + doc.getId(),
-                "{\"entity-type\":\"document\",\"properties\":{\"dv:complexWithoutDefault\":{\"foo\":null}}}")) {
+        transactionalFeature.nextTransaction();
 
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            // Then the document is updated
-            fetchInvalidations();
-            doc = session.getDocument(doc.getRef());
-            assertNull(doc.getPropertyValue("dv:complexWithoutDefault/foo"));
-            // because of clearComplexPropertyBeforeSet
-            assertNull(doc.getPropertyValue("dv:complexWithoutDefault/bar"));
-        }
+        httpClient.buildPutRequest("/id/" + doc.getId())
+                  .entity("{\"entity-type\":\"document\",\"properties\":{\"dv:complexWithoutDefault\":{\"foo\":null}}}")
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(SC_OK, status.intValue()));
+
+        // Then the document is updated
+        transactionalFeature.nextTransaction();
+        doc = session.getDocument(doc.getRef());
+        assertNull(doc.getPropertyValue("dv:complexWithoutDefault/foo"));
+        // because of clearComplexPropertyBeforeSet
+        assertNull(doc.getPropertyValue("dv:complexWithoutDefault/bar"));
     }
 
     /*
@@ -396,18 +395,17 @@ public class DocumentBrowsingTest extends BaseTest {
         doc.setPropertyValue("dv:complexWithoutDefault/foo", "val1");
         doc.setPropertyValue("dv:complexWithoutDefault/bar", "val2");
         doc = session.createDocument(doc);
-        fetchInvalidations();
+        transactionalFeature.nextTransaction();
 
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "id/" + doc.getId(),
-                "{\"entity-type\":\"document\",\"properties\":{\"dv:complexWithoutDefault\":{\"foo\":null,\"bar\":null}}}")) {
+        httpClient.buildPutRequest("/id/" + doc.getId())
+                  .entity("{\"entity-type\":\"document\",\"properties\":{\"dv:complexWithoutDefault\":{\"foo\":null,\"bar\":null}}}")
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(SC_OK, status.intValue()));
 
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            // Then the document is updated
-            fetchInvalidations();
-            doc = session.getDocument(doc.getRef());
-            assertNull(doc.getPropertyValue("dv:complexWithoutDefault/foo"));
-            assertNull(doc.getPropertyValue("dv:complexWithoutDefault/bar"));
-        }
+        // Then the document is updated
+        transactionalFeature.nextTransaction();
+        doc = session.getDocument(doc.getRef());
+        assertNull(doc.getPropertyValue("dv:complexWithoutDefault/foo"));
+        assertNull(doc.getPropertyValue("dv:complexWithoutDefault/bar"));
     }
 
     /*
@@ -420,78 +418,73 @@ public class DocumentBrowsingTest extends BaseTest {
         doc.setPropertyValue("dv:complexWithoutDefault/foo", "val1");
         doc.setPropertyValue("dv:complexWithoutDefault/bar", "val2");
         doc = session.createDocument(doc);
-        fetchInvalidations();
+        transactionalFeature.nextTransaction();
 
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "id/" + doc.getId(),
-                "{\"entity-type\":\"document\",\"properties\":{\"dv:complexWithoutDefault\":{\"foo\":\"val3\",\"bar\":null}}}")) {
+        httpClient.buildPutRequest("/id/" + doc.getId())
+                  .entity("{\"entity-type\":\"document\",\"properties\":{\"dv:complexWithoutDefault\":{\"foo\":\"val3\",\"bar\":null}}}")
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(SC_OK, status.intValue()));
 
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            // Then the document is updated
-            fetchInvalidations();
-            doc = session.getDocument(doc.getRef());
-            assertEquals("val3", doc.getPropertyValue("dv:complexWithoutDefault/foo"));
-            assertNull(doc.getPropertyValue("dv:complexWithoutDefault/bar"));
-        }
+        // Then the document is updated
+        transactionalFeature.nextTransaction();
+        doc = session.getDocument(doc.getRef());
+        assertEquals("val3", doc.getPropertyValue("dv:complexWithoutDefault/foo"));
+        assertNull(doc.getPropertyValue("dv:complexWithoutDefault/bar"));
     }
 
     /*
      * NXP-28298
      */
     @Test
-    public void itCanSetArrayPropertyToEmpty() throws IOException {
+    public void itCanSetArrayPropertyToEmpty() {
         DocumentModel doc = session.createDocumentModel("/", "myDocument", "File");
         doc.setPropertyValue("dc:subjects", new String[] { "foo" });
         doc = session.createDocument(doc);
-        fetchInvalidations();
+        transactionalFeature.nextTransaction();
 
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "id/" + doc.getId(),
-                "{\"entity-type\":\"document\",\"properties\":{\"dc:subjects\":[]}}")) {
+        httpClient.buildPutRequest("/id/" + doc.getId())
+                  .entity("{\"entity-type\":\"document\",\"properties\":{\"dc:subjects\":[]}}")
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      JsonNode jsonProperties = node.get("properties");
+                      assertNotNull(jsonProperties);
+                      JsonNode jsonSubjects = jsonProperties.get("dc:subjects");
+                      assertNotNull(jsonSubjects);
+                      assertTrue(jsonSubjects.isArray());
+                      assertTrue(jsonSubjects.isEmpty());
+                  });
 
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            JsonNode jsonProperties = node.get("properties");
-            assertNotNull(jsonProperties);
-            JsonNode jsonSubjects = jsonProperties.get("dc:subjects");
-            assertNotNull(jsonSubjects);
-            assertTrue(jsonSubjects.isArray());
-            assertTrue(jsonSubjects.isEmpty());
-
-            // Then the document is updated
-            fetchInvalidations();
-            doc = session.getDocument(doc.getRef());
-            // ArrayProperty returns null whenever is empty or null
-            assertNull(doc.getPropertyValue("dc:subjects"));
-        }
+        // Then the document is updated
+        transactionalFeature.nextTransaction();
+        doc = session.getDocument(doc.getRef());
+        // ArrayProperty returns null whenever is empty or null
+        assertNull(doc.getPropertyValue("dc:subjects"));
     }
 
     /*
      * NXP-28298
      */
     @Test
-    public void itCanSetArrayPropertyToNull() throws IOException {
+    public void itCanSetArrayPropertyToNull() {
         DocumentModel doc = session.createDocumentModel("/", "myDocument", "File");
         doc.setPropertyValue("dc:subjects", new String[] { "foo" });
         doc = session.createDocument(doc);
-        fetchInvalidations();
+        transactionalFeature.nextTransaction();
 
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "id/" + doc.getId(),
-                "{\"entity-type\":\"document\",\"properties\":{\"dc:subjects\":null}}")) {
+        httpClient.buildPutRequest("/id/" + doc.getId())
+                  .entity("{\"entity-type\":\"document\",\"properties\":{\"dc:subjects\":null}}")
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      JsonNode jsonProperties = node.get("properties");
+                      assertNotNull(jsonProperties);
+                      JsonNode jsonSubjects = jsonProperties.get("dc:subjects");
+                      assertNotNull(jsonSubjects);
+                      assertTrue(jsonSubjects.isArray());
+                      assertTrue(jsonSubjects.isEmpty());
+                  });
 
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            JsonNode jsonProperties = node.get("properties");
-            assertNotNull(jsonProperties);
-            JsonNode jsonSubjects = jsonProperties.get("dc:subjects");
-            assertNotNull(jsonSubjects);
-            assertTrue(jsonSubjects.isArray());
-            assertTrue(jsonSubjects.isEmpty());
-
-            // Then the document is updated
-            fetchInvalidations();
-            doc = session.getDocument(doc.getRef());
-            // ArrayProperty returns null whenever is empty or null
-            assertNull(doc.getPropertyValue("dc:subjects"));
-        }
+        // Then the document is updated
+        transactionalFeature.nextTransaction();
+        doc = session.getDocument(doc.getRef());
+        // ArrayProperty returns null whenever is empty or null
+        assertNull(doc.getPropertyValue("dc:subjects"));
     }
 
     /*
@@ -499,33 +492,31 @@ public class DocumentBrowsingTest extends BaseTest {
      */
     @Test
     @Deploy("org.nuxeo.ecm.platform.restapi.server:test-defaultvalue-docTypes.xml")
-    public void itCanSetArrayPropertyOfComplexToEmpty() throws IOException {
+    public void itCanSetArrayPropertyOfComplexToEmpty() {
         DocumentModel doc = session.createDocumentModel("/", "myDocument", "DocDefaultValue");
         doc.setProperty("defaultvalue", "multiComplexWithoutDefault", List.of(Map.of("foo", "val1", "bar", "val2")));
         doc = session.createDocument(doc);
-        fetchInvalidations();
+        transactionalFeature.nextTransaction();
 
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "id/" + doc.getId(),
-                "{\"entity-type\":\"document\",\"properties\":{\"dv:multiComplexWithoutDefault\":[]}}",
-                Map.of("X-NXDocumentProperties", "defaultvalue"))) {
+        httpClient.buildPutRequest("/id/" + doc.getId())
+                  .entity("{\"entity-type\":\"document\",\"properties\":{\"dv:multiComplexWithoutDefault\":[]}}")
+                  .addHeader("X-NXDocumentProperties", "defaultvalue")
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      JsonNode jsonProperties = node.get("properties");
+                      assertNotNull(jsonProperties);
+                      JsonNode jsonMultiComplex = jsonProperties.get("dv:multiComplexWithoutDefault");
+                      assertNotNull(jsonMultiComplex);
+                      assertTrue(jsonMultiComplex.isArray());
+                      assertTrue(jsonMultiComplex.isEmpty());
+                  });
 
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            JsonNode jsonProperties = node.get("properties");
-            assertNotNull(jsonProperties);
-            JsonNode jsonMultiComplex = jsonProperties.get("dv:multiComplexWithoutDefault");
-            assertNotNull(jsonMultiComplex);
-            assertTrue(jsonMultiComplex.isArray());
-            assertTrue(jsonMultiComplex.isEmpty());
-
-            // Then the document is updated
-            fetchInvalidations();
-            doc = session.getDocument(doc.getRef());
-            // ListProperty returns an empty List whenever is empty or null
-            Serializable multiComplex = doc.getPropertyValue("dv:multiComplexWithoutDefault");
-            assertTrue(multiComplex instanceof List);
-            assertTrue(((List<?>) multiComplex).isEmpty());
-        }
+        // Then the document is updated
+        transactionalFeature.nextTransaction();
+        doc = session.getDocument(doc.getRef());
+        // ListProperty returns an empty List whenever is empty or null
+        Serializable multiComplex = doc.getPropertyValue("dv:multiComplexWithoutDefault");
+        assertTrue(multiComplex instanceof List);
+        assertTrue(((List<?>) multiComplex).isEmpty());
     }
 
     /*
@@ -533,62 +524,57 @@ public class DocumentBrowsingTest extends BaseTest {
      */
     @Test
     @Deploy("org.nuxeo.ecm.platform.restapi.server:test-defaultvalue-docTypes.xml")
-    public void itCanSetArrayPropertyOfComplexToNull() throws IOException {
+    public void itCanSetArrayPropertyOfComplexToNull() {
         DocumentModel doc = session.createDocumentModel("/", "myDocument", "DocDefaultValue");
         doc.setProperty("defaultvalue", "multiComplexWithoutDefault", List.of(Map.of("foo", "val1", "bar", "val2")));
         doc = session.createDocument(doc);
-        fetchInvalidations();
+        transactionalFeature.nextTransaction();
 
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "id/" + doc.getId(),
-                "{\"entity-type\":\"document\",\"properties\":{\"dv:multiComplexWithoutDefault\":null}}",
-                Map.of("X-NXDocumentProperties", "defaultvalue"))) {
+        httpClient.buildPutRequest("/id/" + doc.getId())
+                  .entity("{\"entity-type\":\"document\",\"properties\":{\"dv:multiComplexWithoutDefault\":null}}")
+                  .addHeader("X-NXDocumentProperties", "defaultvalue")
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      JsonNode jsonProperties = node.get("properties");
+                      assertNotNull(jsonProperties);
+                      JsonNode jsonMultiComplex = jsonProperties.get("dv:multiComplexWithoutDefault");
+                      assertNotNull(jsonMultiComplex);
+                      assertTrue(jsonMultiComplex.isArray());
+                      assertTrue(jsonMultiComplex.isEmpty());
+                  });
 
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            JsonNode jsonProperties = node.get("properties");
-            assertNotNull(jsonProperties);
-            JsonNode jsonMultiComplex = jsonProperties.get("dv:multiComplexWithoutDefault");
-            assertNotNull(jsonMultiComplex);
-            assertTrue(jsonMultiComplex.isArray());
-            assertTrue(jsonMultiComplex.isEmpty());
-
-            // Then the document is updated
-            fetchInvalidations();
-            doc = session.getDocument(doc.getRef());
-            // ListProperty returns an empty List whenever is empty or null
-            Serializable multiComplex = doc.getPropertyValue("dv:multiComplexWithoutDefault");
-            assertTrue(multiComplex instanceof List);
-            assertTrue(((List<?>) multiComplex).isEmpty());
-        }
+        // Then the document is updated
+        transactionalFeature.nextTransaction();
+        doc = session.getDocument(doc.getRef());
+        // ListProperty returns an empty List whenever is empty or null
+        Serializable multiComplex = doc.getPropertyValue("dv:multiComplexWithoutDefault");
+        assertTrue(multiComplex instanceof List);
+        assertTrue(((List<?>) multiComplex).isEmpty());
     }
 
     @Test
-    public void iCanCreateADocument() throws Exception {
-        JsonNode node;
-
+    public void iCanCreateADocument() {
         // Given a folder and a Rest Creation request
         DocumentModel folder = RestServerInit.getFolder(0, session);
 
         String data = "{\"entity-type\": \"document\",\"type\": \"File\",\"name\":\"newName\",\"properties\": {\"dc:title\":\"My title\",\"dc:description\":\" \"}}";
 
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "path" + folder.getPathAsString(),
-                data)) {
-            assertEquals(Response.Status.CREATED.getStatusCode(), response.getStatus());
-            node = mapper.readTree(response.getEntityInputStream());
+        String id = httpClient.buildPostRequest("/path" + folder.getPathAsString())
+                              .entity(data)
+                              .executeAndThen(new JsonNodeHandler(SC_CREATED), node -> {
+                                  // Then the create document is returned
+                                  assertEquals("My title", node.get("title").asText());
+                                  assertEquals(" ", node.get("properties").get("dc:description").textValue());
+                                  String uid = node.get("uid").asText();
+                                  assertTrue(StringUtils.isNotBlank(uid));
+                                  return uid;
+                              });
 
-            // Then the create document is returned
-            assertEquals("My title", node.get("title").asText());
-            assertEquals(" ", node.get("properties").get("dc:description").textValue());
-            String id = node.get("uid").asText();
-            assertTrue(StringUtils.isNotBlank(id));
-
-            // Then a document is created in the database
-            fetchInvalidations();
-            DocumentModel doc = session.getDocument(new IdRef(id));
-            assertEquals(folder.getPathAsString() + "/newName", doc.getPathAsString());
-            assertEquals("My title", doc.getTitle());
-            assertEquals("File", doc.getType());
-        }
+        // Then a document is created in the database
+        transactionalFeature.nextTransaction();
+        DocumentModel doc = session.getDocument(new IdRef(id));
+        assertEquals(folder.getPathAsString() + "/newName", doc.getPathAsString());
+        assertEquals("My title", doc.getTitle());
+        assertEquals("File", doc.getType());
     }
 
     /**
@@ -601,10 +587,10 @@ public class DocumentBrowsingTest extends BaseTest {
 
         String data = "{\"entity-type\": \"document\",\"type\": \"File\",\"name\":\"newName\",\"properties\": {\"dc:title\":\"My title\",\"note:note\":\"File does not have note\"}}";
 
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "path" + folder.getPathAsString(),
-                data)) {
-            assertEquals(Response.Status.CREATED.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildPostRequest("/path" + folder.getPathAsString())
+                  .entity(data)
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_CREATED, status.intValue()));
     }
 
     // NXP-30680
@@ -615,26 +601,25 @@ public class DocumentBrowsingTest extends BaseTest {
 
         String data = "{\"entity-type\": \"document\",\"type\": \"MyDocType\",\"name\":\"newName\",\"properties\": {\"my:integer\":\"Some string\"}}";
 
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "path" + folder.getPathAsString(),
-                data)) {
-            assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildPostRequest("/path" + folder.getPathAsString())
+                  .entity(data)
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_BAD_REQUEST, status.intValue()));
     }
 
     // NXP-30052
     @Test
-    public void iCantCreateADocumentWithNonExistingType() throws IOException {
+    public void iCantCreateADocumentWithNonExistingType() {
         DocumentModel folder = RestServerInit.getFolder(0, session);
 
         String data = "{\"entity-type\": \"document\",\"type\": \"Foo\",\"name\":\"newName\",\"properties\": {\"dc:title\":\"Foo\"}}";
 
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "path" + folder.getPathAsString(),
-                data)) {
-            assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals(400, node.get("status").longValue());
-            assertEquals("Type: Foo does not exist", node.get("message").textValue());
-        }
+        httpClient.buildPostRequest("/path" + folder.getPathAsString())
+                  .entity(data)
+                  .executeAndConsume(new JsonNodeHandler(SC_BAD_REQUEST), node -> {
+                      assertEquals(400, node.get("status").longValue());
+                      assertEquals("Type: Foo does not exist", node.get("message").textValue());
+                  });
     }
 
     @Test
@@ -643,90 +628,65 @@ public class DocumentBrowsingTest extends BaseTest {
         DocumentModel doc = RestServerInit.getNote(0, session);
 
         // When I do a DELETE request
-        try (CloseableClientResponse response = getResponse(RequestType.DELETE, "path" + doc.getPathAsString())) {
-            assertEquals(Response.Status.NO_CONTENT.getStatusCode(), response.getStatus());
+        httpClient.buildDeleteRequest("/path" + doc.getPathAsString())
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_NO_CONTENT, status.intValue()));
 
-            fetchInvalidations();
-            // Then the doc is deleted
-            assertFalse(session.exists(doc.getRef()));
-        }
+        transactionalFeature.nextTransaction();
+        // Then the doc is deleted
+        assertFalse(session.exists(doc.getRef()));
     }
 
     @Test
-    public void iCanDeleteADocumentWithoutHeaders() {
-        // Given a document
-        DocumentModel doc = RestServerInit.getNote(0, session);
-
-        // When I do a DELETE request
-        try (CloseableClientResponse response = getResponse(RequestType.DELETE, "path" + doc.getPathAsString())) {
-            assertEquals(Response.Status.NO_CONTENT.getStatusCode(), response.getStatus());
-
-            fetchInvalidations();
-            // Then the doc is deleted
-            assertFalse(session.exists(doc.getRef()));
-        }
-    }
-
-    @Test
-    public void iCanChooseAnotherRepositoryName() throws Exception {
+    public void iCanChooseAnotherRepositoryName() {
         // Given an existing document
         DocumentModel note = RestServerInit.getNote(0, session);
 
         // When i do a GET Request on the note repository
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                "repo/" + note.getRepositoryName() + "/path" + note.getPathAsString())) {
-
-            // Then i get a document
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            assertEntityEqualsDoc(response.getEntityInputStream(), note);
-        }
+        httpClient.buildGetRequest("/repo/" + note.getRepositoryName() + "/path" + note.getPathAsString())
+                  .executeAndConsume(new JsonNodeHandler(),
+                          // Then i get a document
+                          node -> assertDocumentEqualsNode(note, node));
 
         // When i do a GET Request on a non existent repository
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                "repo/nonexistentrepo/path" + note.getPathAsString())) {
-
-            // Then i receive a 404
-            assertEquals(Response.Status.NOT_FOUND.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildGetRequest("/repo/nonexistentrepo/path" + note.getPathAsString())
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          // Then i receive a 404
+                          status -> assertEquals(SC_NOT_FOUND, status.intValue()));
     }
 
     @Test
-    public void iCanGetTheACLsOnADocumentThroughAdapter() throws Exception {
+    public void iCanGetTheACLsOnADocumentThroughAdapter() {
         // Given an existing document
         DocumentModel note = RestServerInit.getNote(0, session);
 
         // When i do a GET Request on the note repository
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                "repo/" + note.getRepositoryName() + "/path" + note.getPathAsString() + "/@acl")) {
-
-            // Then i get a the ACL
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals(ACPJsonWriter.ENTITY_TYPE, node.get("entity-type").asText());
-        }
+        httpClient.buildGetRequest("/repo/" + note.getRepositoryName() + "/path" + note.getPathAsString() + "/@acl")
+                  .executeAndConsume(new JsonNodeHandler(),
+                          // Then i get a the ACL
+                          node -> assertEquals(ACPJsonWriter.ENTITY_TYPE, node.get("entity-type").asText()));
     }
 
     @Test
-    public void iCanGetTheACLsOnADocumentThroughContributor() throws Exception {
+    public void iCanGetTheACLsOnADocumentThroughContributor() {
         // Given an existing document
         DocumentModel note = RestServerInit.getNote(0, session);
-        Map<String, String> headers = new HashMap<>();
-        headers.put(MarshallingConstants.EMBED_ENRICHERS + ".document", ACLJsonEnricher.NAME);
 
         // When i do a GET Request on the note repository
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                "repo/" + note.getRepositoryName() + "/path" + note.getPathAsString(), headers)) {
-
-            // Then i get a the ACL
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals("inherited",
-                    node.get(RestConstants.CONTRIBUTOR_CTX_PARAMETERS).get("acls").get(0).get("name").textValue());
-        }
+        httpClient.buildGetRequest("/repo/" + note.getRepositoryName() + "/path" + note.getPathAsString())
+                  .addHeader(MarshallingConstants.EMBED_ENRICHERS + ".document", ACLJsonEnricher.NAME)
+                  .executeAndConsume(new JsonNodeHandler(),
+                          // Then i get a the ACL
+                          node -> assertEquals("inherited",
+                                  node.get(RestConstants.CONTRIBUTOR_CTX_PARAMETERS)
+                                      .get("acls")
+                                      .get(0)
+                                      .get("name")
+                                      .textValue()));
     }
 
     @Test
-    public void iCanGetTheThumbnailOfADocumentThroughContributor() throws Exception {
+    public void iCanGetTheThumbnailOfADocumentThroughContributor() {
         // TODO NXP-14793: Improve testing by adding thumbnail conversion
         // Attach a blob
         // Blob blob = new InputStreamBlob(DocumentBrowsingTest.class.getResource(
@@ -741,224 +701,187 @@ public class DocumentBrowsingTest extends BaseTest {
         // "repo/" + file.getRepositoryName() + "/path"
         // + file.getPathAsString(), headers);
         // Then i get an entry for thumbnail
-        // assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-        // JsonNode node = mapper.readTree(response.getEntityInputStream());
+        // assertEquals(SC_OK, response.getStatus());
+        // JsonNode node = MAPPER.readTree(response.getEntityInputStream());
         // assertEquals("specificUrl", node.get(RestConstants
         // .CONTRIBUTOR_CTX_PARAMETERS).get("thumbnail").get
         // ("thumbnailUrl").textValue());
-
-        Map<String, String> headers = new HashMap<>();
-        headers.put(MarshallingConstants.EMBED_ENRICHERS + ".document", ThumbnailJsonEnricher.NAME);
 
         // Given an existing document
         DocumentModel note = RestServerInit.getNote(0, session);
 
         // When i do a GET Request on the note without any image
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                "repo/" + note.getRepositoryName() + "/path" + note.getPathAsString(), headers)) {
-
-            // Then i get no result for valid thumbnail url as expected but still
-            // thumbnail entry from the contributor
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertNotNull(node.get(RestConstants.CONTRIBUTOR_CTX_PARAMETERS).get("thumbnail").get("url").textValue());
-        }
+        httpClient.buildGetRequest("/repo/" + note.getRepositoryName() + "/path" + note.getPathAsString())
+                  .addHeader(MarshallingConstants.EMBED_ENRICHERS + ".document", ThumbnailJsonEnricher.NAME)
+                  .executeAndConsume(new JsonNodeHandler(),
+                          // Then i get no result for valid thumbnail url as expected but still
+                          // thumbnail entry from the contributor
+                          node -> assertNotNull(node.get(RestConstants.CONTRIBUTOR_CTX_PARAMETERS)
+                                                    .get("thumbnail")
+                                                    .get("url")
+                                                    .textValue()));
     }
 
     /**
      * @since 8.1
      */
     @Test
-    public void iCanGetIsADocumentFavorite() throws Exception {
+    public void iCanGetIsADocumentFavorite() {
 
         Map<String, String> headers = new HashMap<>();
         headers.put(MarshallingConstants.EMBED_ENRICHERS + ".document", FavoritesJsonEnricher.NAME);
 
         DocumentModel note = RestServerInit.getNote(0, session);
 
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                "repo/" + note.getRepositoryName() + "/path" + note.getPathAsString(), headers)) {
-
-            // The above GET will force the creation of the user workspace if it did not exist yet.
-            // Force to refresh current transaction context.
-            TransactionHelper.commitOrRollbackTransaction();
-            TransactionHelper.startTransaction();
-
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertFalse(node.get(RestConstants.CONTRIBUTOR_CTX_PARAMETERS)
-                            .get(FavoritesJsonEnricher.NAME)
-                            .get(FavoritesJsonEnricher.IS_FAVORITE)
-                            .booleanValue());
-        }
+        httpClient.buildGetRequest("/repo/" + note.getRepositoryName() + "/path" + note.getPathAsString())
+                  .addHeaders(headers)
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      assertFalse(node.get(RestConstants.CONTRIBUTOR_CTX_PARAMETERS)
+                                      .get(FavoritesJsonEnricher.NAME)
+                                      .get(FavoritesJsonEnricher.IS_FAVORITE)
+                                      .booleanValue());
+                  });
+        // The above GET will force the creation of the user workspace if it did not exist yet.
+        // Force to refresh current transaction context.
+        transactionalFeature.nextTransaction();
 
         FavoritesManager favoritesManager = Framework.getService(FavoritesManager.class);
         favoritesManager.addToFavorites(note, session);
 
-        TransactionHelper.commitOrRollbackTransaction();
-        TransactionHelper.startTransaction();
+        transactionalFeature.nextTransaction();
 
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                "repo/" + note.getRepositoryName() + "/path" + note.getPathAsString(), headers)) {
-
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertTrue(node.get(RestConstants.CONTRIBUTOR_CTX_PARAMETERS)
-                           .get(FavoritesJsonEnricher.NAME)
-                           .get(FavoritesJsonEnricher.IS_FAVORITE)
-                           .booleanValue());
-        }
+        httpClient.buildGetRequest("/repo/" + note.getRepositoryName() + "/path" + note.getPathAsString())
+                  .addHeaders(headers)
+                  .executeAndConsume(new JsonNodeHandler(),
+                          node -> assertTrue(node.get(RestConstants.CONTRIBUTOR_CTX_PARAMETERS)
+                                                 .get(FavoritesJsonEnricher.NAME)
+                                                 .get(FavoritesJsonEnricher.IS_FAVORITE)
+                                                 .booleanValue()));
     }
 
     /**
      * @since 8.3
      */
     @Test
-    public void iCanGetDocumentTags() throws Exception {
+    public void iCanGetDocumentTags() {
 
         Map<String, String> headers = new HashMap<>();
         headers.put(MarshallingConstants.EMBED_ENRICHERS + ".document", TagsJsonEnricher.NAME);
 
         DocumentModel note = RestServerInit.getNote(0, session);
 
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                "repo/" + note.getRepositoryName() + "/path" + note.getPathAsString(), headers)) {
+        httpClient.buildGetRequest("/repo/" + note.getRepositoryName() + "/path" + note.getPathAsString())
+                  .addHeaders(headers)
+                  .executeAndConsume(new JsonNodeHandler(), node -> assertEquals(0,
+                          node.get(RestConstants.CONTRIBUTOR_CTX_PARAMETERS).get(TagsJsonEnricher.NAME).size()));
 
-            // The above GET will force the creation of the user workspace if it did not exist yet.
-            // Force to refresh current transaction context.
-            TransactionHelper.commitOrRollbackTransaction();
-            TransactionHelper.startTransaction();
-
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals(0, node.get(RestConstants.CONTRIBUTOR_CTX_PARAMETERS).get(TagsJsonEnricher.NAME).size());
-        }
+        // The above GET will force the creation of the user workspace if it did not exist yet.
+        // Force to refresh current transaction context.
+        transactionalFeature.nextTransaction();
 
         TagService tagService = Framework.getService(TagService.class);
         tagService.tag(session, note.getId(), "pouet");
 
-        TransactionHelper.commitOrRollbackTransaction();
-        TransactionHelper.startTransaction();
+        transactionalFeature.nextTransaction();
 
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                "repo/" + note.getRepositoryName() + "/path" + note.getPathAsString(), headers)) {
-
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            JsonNode tags = node.get(RestConstants.CONTRIBUTOR_CTX_PARAMETERS).get(TagsJsonEnricher.NAME);
-            if (tags.size() != 0) { // XXX NXP-17670 tags not implemented for MongoDB
-                assertEquals(1, tags.size());
-                assertEquals("pouet", tags.get(0).textValue());
-            }
-        }
+        httpClient.buildGetRequest("/repo/" + note.getRepositoryName() + "/path" + note.getPathAsString())
+                  .addHeaders(headers)
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      JsonNode tags = node.get(RestConstants.CONTRIBUTOR_CTX_PARAMETERS).get(TagsJsonEnricher.NAME);
+                      if (!tags.isEmpty()) { // XXX NXP-17670 tags not implemented for MongoDB
+                          assertEquals(1, tags.size());
+                          assertEquals("pouet", tags.get(0).textValue());
+                      }
+                  });
     }
 
     /**
      * @since 8.3
      */
     @Test
-    public void iCanGetTheCollectionsOfADocument() throws Exception {
+    public void iCanGetTheCollectionsOfADocument() {
 
         Map<String, String> headers = new HashMap<>();
         headers.put(MarshallingConstants.EMBED_ENRICHERS + ".document", CollectionsJsonEnricher.NAME);
 
         DocumentModel note = RestServerInit.getNote(0, session);
 
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                "repo/" + note.getRepositoryName() + "/path" + note.getPathAsString(), headers)) {
+        httpClient.buildGetRequest("/repo/" + note.getRepositoryName() + "/path" + note.getPathAsString())
+                  .addHeaders(headers)
+                  .executeAndConsume(new JsonNodeHandler(), node -> assertEquals(0,
+                          node.get(RestConstants.CONTRIBUTOR_CTX_PARAMETERS).get(CollectionsJsonEnricher.NAME).size()));
 
-            // The above GET will force the creation of the user workspace if it did not exist yet.
-            // Force to refresh current transaction context.
-            TransactionHelper.commitOrRollbackTransaction();
-            TransactionHelper.startTransaction();
-
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals(0,
-                    node.get(RestConstants.CONTRIBUTOR_CTX_PARAMETERS).get(CollectionsJsonEnricher.NAME).size());
-        }
+        // The above GET will force the creation of the user workspace if it did not exist yet.
+        // Force to refresh current transaction context.
+        transactionalFeature.nextTransaction();
 
         CollectionManager collectionManager = Framework.getService(CollectionManager.class);
         collectionManager.addToNewCollection("dummyCollection", null, note, session);
 
-        TransactionHelper.commitOrRollbackTransaction();
-        TransactionHelper.startTransaction();
+        transactionalFeature.nextTransaction();
 
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                "repo/" + note.getRepositoryName() + "/path" + note.getPathAsString(), headers)) {
-
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            ArrayNode collections = (ArrayNode) node.get(RestConstants.CONTRIBUTOR_CTX_PARAMETERS)
-                                                    .get(CollectionsJsonEnricher.NAME);
-            assertEquals(1, collections.size());
-            assertEquals("dummyCollection", collections.get(0).get("title").textValue());
-        }
+        httpClient.buildGetRequest("/repo/" + note.getRepositoryName() + "/path" + note.getPathAsString())
+                  .addHeaders(headers)
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      ArrayNode collections = (ArrayNode) node.get(RestConstants.CONTRIBUTOR_CTX_PARAMETERS)
+                                                              .get(CollectionsJsonEnricher.NAME);
+                      assertEquals(1, collections.size());
+                      assertEquals("dummyCollection", collections.get(0).get("title").textValue());
+                  });
     }
 
     @Test
-    public void iCanGetThePermissionsOnADocumentUnderRetention() throws Exception {
+    public void iCanGetThePermissionsOnADocumentUnderRetention() {
         // Given an existing doc under retention as an admin
         DocumentModel file = RestServerInit.getFile(0, session);
         Calendar retainUntil = Calendar.getInstance();
         retainUntil.add(Calendar.DAY_OF_MONTH, 5);
         session.makeRecord(file.getRef());
         session.setRetainUntil(file.getRef(), retainUntil, "any comment");
-        TransactionHelper.commitOrRollbackTransaction();
-        TransactionHelper.startTransaction();
-        var headers = Map.of(MarshallingConstants.EMBED_ENRICHERS + ".document", BasePermissionsJsonEnricher.NAME);
+        transactionalFeature.nextTransaction();
+
         // When i do a GET Request on the doc
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                "repo/" + file.getRepositoryName() + "/path" + file.getPathAsString(), headers)) {
-
-            // Then i get a list of permissions as an admin
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            JsonNode permissions = node.get(RestConstants.CONTRIBUTOR_CTX_PARAMETERS).get("permissions");
-            assertNotNull(permissions);
-            assertTrue(permissions.isArray());
-            assertTrue(permissions.size() > 0);
-        }
+        httpClient.buildGetRequest("/repo/" + file.getRepositoryName() + "/path" + file.getPathAsString())
+                  .addHeader(MarshallingConstants.EMBED_ENRICHERS + ".document", BasePermissionsJsonEnricher.NAME)
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      // Then i get a list of permissions as an admin
+                      JsonNode permissions = node.get(RestConstants.CONTRIBUTOR_CTX_PARAMETERS).get("permissions");
+                      assertNotNull(permissions);
+                      assertTrue(permissions.isArray());
+                      assertFalse(permissions.isEmpty());
+                  });
     }
 
     @Test
-    public void iCanGetThePermissionsOnADocumentThroughContributor() throws Exception {
+    public void iCanGetThePermissionsOnADocumentThroughContributor() {
         // Given an existing document
         DocumentModel note = RestServerInit.getNote(0, session);
-        Map<String, String> headers = new HashMap<>();
-        headers.put(MarshallingConstants.EMBED_ENRICHERS + ".document", BasePermissionsJsonEnricher.NAME);
 
         // When i do a GET Request on the note repository
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                "repo/" + note.getRepositoryName() + "/path" + note.getPathAsString(), headers)) {
-
-            // Then i get a list of permissions
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            JsonNode permissions = node.get(RestConstants.CONTRIBUTOR_CTX_PARAMETERS).get("permissions");
-            assertNotNull(permissions);
-            assertTrue(permissions.isArray());
-        }
+        httpClient.buildGetRequest("/repo/" + note.getRepositoryName() + "/path" + note.getPathAsString())
+                  .addHeader(MarshallingConstants.EMBED_ENRICHERS + ".document", BasePermissionsJsonEnricher.NAME)
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      // Then i get a list of permissions
+                      JsonNode permissions = node.get(RestConstants.CONTRIBUTOR_CTX_PARAMETERS).get("permissions");
+                      assertNotNull(permissions);
+                      assertTrue(permissions.isArray());
+                  });
     }
 
     @Test
-    public void iCanGetThePreviewURLThroughContributor() throws Exception {
+    public void iCanGetThePreviewURLThroughContributor() {
         // Given an existing document
         DocumentModel note = RestServerInit.getNote(0, session);
-        Map<String, String> headers = new HashMap<>();
-        headers.put(MarshallingConstants.EMBED_ENRICHERS + ".document", PreviewJsonEnricher.NAME);
 
         // When i do a GET Request on the note repository
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                "repo/" + note.getRepositoryName() + "/path" + note.getPathAsString(), headers)) {
-
-            // Then i get a preview url
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            JsonNode preview = node.get(RestConstants.CONTRIBUTOR_CTX_PARAMETERS).get("preview");
-            assertNotNull(preview);
-            StringUtils.endsWith(preview.get("url").textValue(), "/default/");
-        }
+        httpClient.buildGetRequest("/repo/" + note.getRepositoryName() + "/path" + note.getPathAsString())
+                  .addHeader(MarshallingConstants.EMBED_ENRICHERS + ".document", PreviewJsonEnricher.NAME)
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      // Then i get a preview url
+                      JsonNode preview = node.get(RestConstants.CONTRIBUTOR_CTX_PARAMETERS).get("preview");
+                      assertNotNull(preview);
+                      StringUtils.endsWith(preview.get("url").textValue(), "/default/");
+                  });
     }
 
     @Test
@@ -966,79 +889,77 @@ public class DocumentBrowsingTest extends BaseTest {
         DocumentModel folder = RestServerInit.getFolder(0, session);
         DocumentModel note = session.createDocumentModel(folder.getPathAsString(), "doc with space", "Note");
         note = session.createDocument(note);
-        TransactionHelper.commitOrRollbackTransaction();
-        TransactionHelper.startTransaction();
+        transactionalFeature.nextTransaction();
 
         // When i do a GET Request on the note repository
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                "repo/" + note.getRepositoryName() + "/path" + note.getPathAsString().replace(" ", "%20"))) {
-
-            // Then i get a the ACL
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildGetRequest(
+                "/repo/" + note.getRepositoryName() + "/path" + note.getPathAsString().replace(" ", "%20"))
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          // Then i get a the ACL
+                          status -> assertEquals(SC_OK, status.intValue()));
 
         // When i do a GET Request on the note repository
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                "repo/" + note.getRepositoryName() + "/path" + note.getPathAsString())) {
-
-            // Then i get a the ACL
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildGetRequest("/repo/" + note.getRepositoryName() + "/path" + note.getPathAsString())
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          // Then i get a the ACL
+                          status -> assertEquals(SC_OK, status.intValue()));
     }
 
     @Test
     public void itCanModifyArrayTypes() throws Exception {
-        JSONDocumentNode jsonDoc;
-
         // Given a document
         DocumentModel note = RestServerInit.getNote(0, session);
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "id/" + note.getId())) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            jsonDoc = new JSONDocumentNode(response.getEntityInputStream());
-        }
+        JSONDocumentNode jsonDoc = httpClient.buildGetRequest("/id/" + note.getId())
+                                             .addHeader("X-NXDocumentProperties", "dublincore")
+                                             .execute(new JSONDocumentNodeHandler());
 
         // When i do a PUT request on the document with modified data
-
         jsonDoc.setPropertyValue("dc:title", "New title");
         jsonDoc.setPropertyArray("dc:contributors", "bob");
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "id/" + note.getId(), jsonDoc.asJson())) {
+        httpClient.buildPutRequest("/id/" + note.getId())
+                  .entity(jsonDoc.asJson())
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(SC_OK, status.intValue()));
 
-            // Then the document is updated
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            fetchInvalidations();
-            note = RestServerInit.getNote(0, session);
-            assertEquals("New title", note.getTitle());
+        // Then the document is updated
+        transactionalFeature.nextTransaction();
+        note = RestServerInit.getNote(0, session);
+        assertEquals("New title", note.getTitle());
 
-            List<String> contributors = Arrays.asList((String[]) note.getPropertyValue("dc:contributors"));
-            assertTrue(contributors.contains("bob"));
-            assertTrue(contributors.contains("Administrator"));
-            assertEquals(2, contributors.size());
-        }
+        List<String> contributors = Arrays.asList((String[]) note.getPropertyValue("dc:contributors"));
+        assertTrue(contributors.contains("bob"));
+        assertTrue(contributors.contains("Administrator"));
+        assertEquals(2, contributors.size());
     }
 
     // NXP-30846
     @Deploy("org.nuxeo.ecm.platform.restapi.test.test:delivery-doctype.xml")
     @Test
-    public void itCanAccessDetachedDocumentACP() throws IOException {
+    public void itCanAccessDetachedDocumentACP() {
         DocumentModel doc = session.createDocumentModel("/", "deliv", "Delivery");
         DocumentModel subDoc = session.createDocumentModel("/", "deliv2", "Delivery");
         subDoc = session.createDocument(subDoc);
         doc.setPropertyValue("delivery:docu", subDoc.getId());
         doc = session.createDocument(doc);
 
-        TransactionHelper.commitOrRollbackTransaction();
-        TransactionHelper.startTransaction();
+        transactionalFeature.nextTransaction();
 
-        var headers = Map.of(MarshallingConstants.EMBED_ENRICHERS + ".document", ACLJsonEnricher.NAME, "properties",
-                "*", "fetch.document", "delivery:docu", "depth", "max");
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "id/" + doc.getId(), headers)) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonAssert.on(response.getEntity(String.class))
-                      .has("properties")
-                      .has("delivery:docu")
-                      .has("contextParameters")
-                      .has("acls");
-        }
+        httpClient.buildGetRequest("/id/" + doc.getId())
+                  .addHeader(MarshallingConstants.EMBED_ENRICHERS + ".document", ACLJsonEnricher.NAME)
+                  .addHeader("properties", "*")
+                  .addHeader("fetch.document", "delivery:docy")
+                  .addHeader("depth", "max")
+                  .executeAndConsume(ThrowableConsumer.asConsumer(response -> {
+                      assertEquals(SC_OK, response.getStatus());
+                      var jsonAssert = JsonAssert.on(response.getEntityString());
+                      jsonAssert.has("properties").has("delivery:docu");
+                      jsonAssert.has("contextParameters").has("acls");
+                  }));
     }
 
+    protected void assertDocumentEqualsNode(DocumentModel expected, JsonNode actual) {
+        assertEquals("document", actual.get("entity-type").asText());
+        assertEquals(expected.getPathAsString(), actual.get("path").asText());
+        assertEquals(expected.getId(), actual.get("uid").asText());
+        assertEquals(expected.getTitle(), actual.get("title").asText());
+    }
 }

@@ -19,28 +19,27 @@
 package org.nuxeo.ecm.restapi.test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-import java.io.IOException;
+import javax.inject.Inject;
 
-import javax.ws.rs.core.MultivaluedMap;
-import javax.ws.rs.core.Response;
-
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.nuxeo.directory.test.DirectoryFeature;
 import org.nuxeo.ecm.core.io.marshallers.json.types.SchemaJsonWriter;
 import org.nuxeo.ecm.core.test.annotations.Granularity;
 import org.nuxeo.ecm.core.test.annotations.RepositoryConfig;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.sun.jersey.core.util.MultivaluedMapImpl;
 
 /**
  * Test class for 'docType', 'facet' and 'schema' endpoint.
@@ -51,62 +50,69 @@ import com.sun.jersey.core.util.MultivaluedMapImpl;
 @Features({ RestServerFeature.class, DirectoryFeature.class })
 @RepositoryConfig(init = RestServerInit.class, cleanup = Granularity.METHOD)
 @Deploy("org.nuxeo.ecm.platform.restapi.test.test:test-directory-contrib.xml")
-public class ConfigTest extends BaseTest {
+public class ConfigTest {
+
+    @Inject
+    protected RestServerFeature restServerFeature;
+
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.defaultClient(
+            () -> restServerFeature.getRestApiUrl());
 
     /**
      * @since 8.10
      */
     @Test
-    public void itCanRetrieveSchemaDefinitionWithoutFieldConstraints() throws IOException {
+    public void itCanRetrieveSchemaDefinitionWithoutFieldConstraints() {
         // When I call the Rest schema endpoint
-        JsonNode node = getResponseAsJson(RequestType.GET, "/schema/dublincore");
-
-        // Then I can retrieve schema fields type
-        assertEquals("schema", node.get("entity-type").textValue());
-        JsonNode fields = node.get("fields");
-        assertTrue(fields.size() > 0);
-        JsonNode creatorField = fields.get("creator");
-        assertEquals("string", creatorField.textValue());
+        httpClient.buildGetRequest("/schema/dublincore").executeAndConsume(new JsonNodeHandler(), node -> {
+            // Then I can retrieve schema fields type
+            assertEquals("schema", node.get("entity-type").textValue());
+            JsonNode fields = node.get("fields");
+            assertFalse(fields.isEmpty());
+            JsonNode creatorField = fields.get("creator");
+            assertEquals("string", creatorField.textValue());
+        });
     }
 
     /**
      * @since 8.10
      */
     @Test
-    public void itCanRetrieveSchemaDefinitionWithFieldConstraints() throws IOException {
+    public void itCanRetrieveSchemaDefinitionWithFieldConstraints() {
         // When I call the Rest schema endpoint with fetch.schema=fields
-        MultivaluedMap<String, String> queryParams = new MultivaluedMapImpl();
-        queryParams.putSingle("fetch." + SchemaJsonWriter.ENTITY_TYPE, SchemaJsonWriter.FETCH_FIELDS);
-        JsonNode node = getResponseAsJson(RequestType.GET, "/schema/dublincore", queryParams);
+        httpClient.buildGetRequest("/schema/dublincore")
+                  .addQueryParameter("fetch." + SchemaJsonWriter.ENTITY_TYPE, SchemaJsonWriter.FETCH_FIELDS)
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      // Then I can retrieve schema fields type and constraints
+                      assertEquals("schema", node.get("entity-type").textValue());
+                      JsonNode fields = node.get("fields");
+                      assertFalse(fields.isEmpty());
 
-        // Then I can retrieve schema fields type and constraints
-        assertEquals("schema", node.get("entity-type").textValue());
-        JsonNode fields = node.get("fields");
-        assertTrue(fields.size() > 0);
+                      // Test that creator has a constraint with validation disabled
+                      JsonNode creatorField = fields.get("creator");
+                      assertEquals("string", creatorField.get("type").textValue());
+                      ArrayNode constraints = (ArrayNode) creatorField.get("constraints");
+                      assertEquals(2, constraints.size());
+                      JsonNode userConstraint = getConstraint(constraints, "userManagerResolver");
+                      assertNotNull(userConstraint);
+                      JsonNode userConstraintParams = userConstraint.get("parameters");
+                      assertEquals(3, userConstraintParams.size());
+                      assertEquals("true", userConstraintParams.get("includeUsers").textValue());
+                      assertEquals("false", userConstraintParams.get("includeGroups").textValue());
+                      assertEquals("false", userConstraintParams.get("validation").textValue());
 
-        // Test that creator has a constraint with validation disabled
-        JsonNode creatorField = fields.get("creator");
-        assertEquals("string", creatorField.get("type").textValue());
-        ArrayNode constraints = (ArrayNode) creatorField.get("constraints");
-        assertEquals(2, constraints.size());
-        JsonNode userConstraint = getConstraint(constraints, "userManagerResolver");
-        assertNotNull(userConstraint);
-        JsonNode userConstraintParams = userConstraint.get("parameters");
-        assertEquals(3, userConstraintParams.size());
-        assertEquals("true", userConstraintParams.get("includeUsers").textValue());
-        assertEquals("false", userConstraintParams.get("includeGroups").textValue());
-        assertEquals("false", userConstraintParams.get("validation").textValue());
-
-        // Test that nature has a constraint checking if value exists in directory
-        JsonNode natureField = fields.get("nature");
-        assertEquals("string", natureField.get("type").textValue());
-        constraints = (ArrayNode) natureField.get("constraints");
-        assertEquals(2, constraints.size());
-        JsonNode natureConstraint = getConstraint(constraints, "directoryResolver");
-        assertNotNull(natureConstraint);
-        JsonNode natureConstraintParams = natureConstraint.get("parameters");
-        assertEquals(2, natureConstraintParams.size());
-        assertEquals("nature", natureConstraintParams.get("directory").textValue());
+                      // Test that nature has a constraint checking if value exists in directory
+                      JsonNode natureField = fields.get("nature");
+                      assertEquals("string", natureField.get("type").textValue());
+                      constraints = (ArrayNode) natureField.get("constraints");
+                      assertEquals(2, constraints.size());
+                      JsonNode natureConstraint = getConstraint(constraints, "directoryResolver");
+                      assertNotNull(natureConstraint);
+                      JsonNode natureConstraintParams = natureConstraint.get("parameters");
+                      assertEquals(2, natureConstraintParams.size());
+                      assertEquals("nature", natureConstraintParams.get("directory").textValue());
+                  });
     }
 
     protected JsonNode getConstraint(ArrayNode constraints, String name) {
@@ -124,36 +130,28 @@ public class ConfigTest extends BaseTest {
      * @since 8.10
      */
     @Test
-    public void itCanRetrieveAllSchemas() throws IOException {
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "/schema")) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertTrue(node.isArray());
-        }
+    public void itCanRetrieveAllSchemas() {
+        httpClient.buildGetRequest("/schema")
+                  .executeAndConsume(new JsonNodeHandler(), node -> assertTrue(node.isArray()));
     }
 
     /**
      * @since 8.10
      */
     @Test
-    public void itCanRetrieveAllFacets() throws IOException {
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "/facet")) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertTrue(node.isArray());
-        }
+    public void itCanRetrieveAllFacets() {
+        httpClient.buildGetRequest("/facet")
+                  .executeAndConsume(new JsonNodeHandler(), node -> assertTrue(node.isArray()));
     }
 
     /**
      * @since 8.10
      */
     @Test
-    public void itCanRetrieveAllDocTypes() throws IOException {
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "/docType")) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
+    public void itCanRetrieveAllDocTypes() {
+        httpClient.buildGetRequest("/docType").executeAndConsume(new JsonNodeHandler(), node -> {
             assertTrue(node.isObject());
             assertTrue(node.has("doctypes"));
-        }
+        });
     }
 }

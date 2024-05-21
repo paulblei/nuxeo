@@ -19,12 +19,9 @@
 package org.nuxeo.adobe.cc;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.Assert.assertEquals;
 import static org.nuxeo.ecm.platform.picture.api.ImagingDocumentConstants.PICTURE_TYPE_NAME;
 import static org.nuxeo.ecm.restapi.server.jaxrs.QueryObject.ORDERED_PARAMS;
 
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,10 +29,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import javax.inject.Inject;
-import javax.ws.rs.core.MultivaluedMap;
-import javax.ws.rs.core.Response;
 
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.nuxeo.ecm.collections.api.CollectionManager;
@@ -43,11 +39,12 @@ import org.nuxeo.ecm.collections.core.test.CollectionFeature;
 import org.nuxeo.ecm.core.api.CoreSession;
 import org.nuxeo.ecm.core.api.DocumentModel;
 import org.nuxeo.ecm.core.api.PathRef;
-import org.nuxeo.ecm.restapi.test.BaseTest;
+import org.nuxeo.ecm.restapi.test.JsonNodeHelper;
 import org.nuxeo.ecm.restapi.test.RestServerFeature;
 import org.nuxeo.elasticsearch.api.ElasticSearchAdmin;
 import org.nuxeo.elasticsearch.test.RepositoryElasticSearchFeature;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.api.Framework;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
@@ -55,7 +52,6 @@ import org.nuxeo.runtime.test.runner.FeaturesRunner;
 import org.nuxeo.runtime.test.runner.TransactionalFeature;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.sun.jersey.core.util.MultivaluedMapImpl;
 
 /**
  * @since 11.1
@@ -67,7 +63,7 @@ import com.sun.jersey.core.util.MultivaluedMapImpl;
 @Deploy("org.nuxeo.ecm.platform.oauth")
 @Deploy("org.nuxeo.ecm.platform.restapi.server.search")
 @Deploy("org.nuxeo.ecm.platform.restapi.test:elasticsearch-test-contrib.xml")
-public class TestPageProviders extends BaseTest {
+public class TestPageProviders {
 
     protected String testWorkspacePath;
 
@@ -82,6 +78,13 @@ public class TestPageProviders extends BaseTest {
     @Inject
     protected ElasticSearchAdmin esa;
 
+    @Inject
+    protected RestServerFeature restServerFeature;
+
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.defaultJsonClient(
+            () -> restServerFeature.getRestApiUrl());
+
     @Before
     public void before() {
         esa.initIndexes(true);
@@ -95,7 +98,7 @@ public class TestPageProviders extends BaseTest {
     }
 
     @Test
-    public void testAllImages() throws Exception {
+    public void testAllImages() {
         DocumentModel doc = session.createDocumentModel(testWorkspacePath, "foo", PICTURE_TYPE_NAME);
         doc = session.createDocument(doc);
 
@@ -107,7 +110,7 @@ public class TestPageProviders extends BaseTest {
     }
 
     @Test
-    public void testBrowse() throws Exception {
+    public void testBrowse() {
         String rootId = session.getDocument(new PathRef("/default-domain/workspaces")).getId();
 
         testPageProvider("adobe-connector-browse", (entries) -> {
@@ -117,7 +120,7 @@ public class TestPageProviders extends BaseTest {
     }
 
     @Test
-    public void testOthers() throws Exception {
+    public void testOthers() {
         DocumentModel doc = session.createDocumentModel(testWorkspacePath, "foo", PICTURE_TYPE_NAME);
         doc = session.createDocument(doc);
 
@@ -139,7 +142,7 @@ public class TestPageProviders extends BaseTest {
     }
 
     @Test
-    public void testSearch() throws Exception {
+    public void testSearch() {
         DocumentModel doc = session.createDocumentModel(testWorkspacePath, "foo", PICTURE_TYPE_NAME);
         doc.setPropertyValue("dc:description", "hello");
         session.createDocument(doc);
@@ -160,24 +163,19 @@ public class TestPageProviders extends BaseTest {
     }
 
     protected void testPageProvider(String ppName, Consumer<List<JsonNode>> consumer, Map<String, String> qarams,
-            String... parameters) throws Exception {
+            String... parameters) {
         tf.nextTransaction();
 
-        MultivaluedMap<String, String> queryParams = new MultivaluedMapImpl();
-        queryParams.put(ORDERED_PARAMS, Arrays.asList(parameters));
-        qarams.forEach(queryParams::putSingle);
-
-        try (CloseableClientResponse res = getResponse(RequestType.GET, "search/pp/" + ppName + "/execute",
-                queryParams)) {
-            assertEquals(Response.Status.OK.getStatusCode(), res.getStatus());
-            List<JsonNode> logEntries = getEntries(mapper.readTree(res.getEntityInputStream()));
-
-            consumer.accept(logEntries);
-        }
+        httpClient.buildGetRequest("/search/pp/" + ppName + "/execute")
+                  .addQueryParameter(ORDERED_PARAMS, parameters)
+                  .addQueryParameters(qarams)
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      List<JsonNode> logEntries = JsonNodeHelper.getEntries(node);
+                      consumer.accept(logEntries);
+                  });
     }
 
-    protected void testPageProvider(String ppName, Consumer<List<JsonNode>> consumer, String... parameters)
-            throws Exception {
-        testPageProvider(ppName, consumer, Collections.emptyMap(), parameters);
+    protected void testPageProvider(String ppName, Consumer<List<JsonNode>> consumer, String... parameters) {
+        testPageProvider(ppName, consumer, Map.of(), parameters);
     }
 }

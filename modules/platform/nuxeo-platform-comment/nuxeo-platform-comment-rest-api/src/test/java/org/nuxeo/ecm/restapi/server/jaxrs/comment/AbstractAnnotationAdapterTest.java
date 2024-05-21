@@ -19,6 +19,9 @@
 
 package org.nuxeo.ecm.restapi.server.jaxrs.comment;
 
+import static org.apache.http.HttpStatus.SC_CREATED;
+import static org.apache.http.HttpStatus.SC_NO_CONTENT;
+import static org.apache.http.HttpStatus.SC_OK;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
@@ -40,20 +43,19 @@ import static org.nuxeo.ecm.restapi.server.jaxrs.comment.AbstractCommentAdapterT
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
-import javax.ws.rs.core.MultivaluedMap;
-import javax.ws.rs.core.Response;
+import javax.inject.Inject;
 
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.nuxeo.ecm.core.api.CoreSession;
 import org.nuxeo.ecm.core.api.DocumentModel;
 import org.nuxeo.ecm.core.api.IdRef;
 import org.nuxeo.ecm.core.api.security.PermissionProvider;
@@ -63,28 +65,42 @@ import org.nuxeo.ecm.platform.comment.api.Annotation;
 import org.nuxeo.ecm.platform.comment.api.AnnotationService;
 import org.nuxeo.ecm.platform.comment.api.Comment;
 import org.nuxeo.ecm.platform.comment.api.CommentManager;
-import org.nuxeo.ecm.restapi.test.BaseTest;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.ecm.restapi.test.RestServerFeature;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.HttpStatusCodeHandler;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.api.Framework;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
+import org.nuxeo.runtime.test.runner.TransactionalFeature;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.google.inject.Inject;
-import com.sun.jersey.core.util.MultivaluedMapImpl;
 
 /**
  * @since 10.1
  */
 @RunWith(FeaturesRunner.class)
 @Features(CommentAdapterFeature.class)
-public abstract class AbstractAnnotationAdapterTest extends BaseTest {
+public abstract class AbstractAnnotationAdapterTest {
 
     @Inject
     protected AnnotationService annotationService;
 
     @Inject
     protected CommentManager commentManager;
+
+    @Inject
+    protected CoreSession session;
+
+    @Inject
+    protected RestServerFeature restServerFeature;
+
+    @Inject
+    protected TransactionalFeature transactionalFeature;
+
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.defaultJsonClient(
+            () -> restServerFeature.getRestApiUrl());
 
     protected DocumentModel file;
 
@@ -94,7 +110,7 @@ public abstract class AbstractAnnotationAdapterTest extends BaseTest {
         session.createDocument(domain);
         file = session.createDocumentModel("/testDomain", "testDoc", "File");
         file = session.createDocument(file);
-        fetchInvalidations();
+        transactionalFeature.nextTransaction();
     }
 
     @Test
@@ -104,35 +120,38 @@ public abstract class AbstractAnnotationAdapterTest extends BaseTest {
 
         String jsonAnnotation = MarshallerHelper.objectToJson(annotation, CtxBuilder.session(session).get());
 
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "id/" + file.getId() + "/@annotation",
-                jsonAnnotation)) {
-            assertEquals(Response.Status.CREATED.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals(file.getId(), node.get(COMMENT_PARENT_ID_FIELD).textValue());
-            assertEquals(xpath, node.get(ANNOTATION_XPATH_FIELD).textValue());
-        }
+        httpClient.buildPostRequest("/id/" + file.getId() + "/@annotation")
+                  .entity(jsonAnnotation)
+                  .executeAndConsume(new JsonNodeHandler(SC_CREATED), node -> {
+                      assertEquals(file.getId(), node.get(COMMENT_PARENT_ID_FIELD).textValue());
+                      assertEquals(xpath, node.get(ANNOTATION_XPATH_FIELD).textValue());
+                  });
     }
 
     @Test
-    public void testGetAnnotation() throws IOException {
+    public void testGetAnnotation() {
         String xpath = "files:files/0/file";
         var annotation = annotationService.createAnnotation(session, newAnnotation(file.getId(), xpath));
-        fetchInvalidations();
+        transactionalFeature.nextTransaction();
 
-        JsonNode node = getResponseAsJson(RequestType.GET, "id/" + file.getId() + "/@annotation/" + annotation.getId());
+        httpClient.buildGetRequest("/id/" + file.getId() + "/@annotation/" + annotation.getId())
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
 
-        assertEquals(ANNOTATION_ENTITY_TYPE, node.get("entity-type").asText());
-        assertEquals(file.getId(), node.get(COMMENT_PARENT_ID_FIELD).textValue());
-        assertEquals(xpath, node.get(ANNOTATION_XPATH_FIELD).textValue());
+                      assertEquals(ANNOTATION_ENTITY_TYPE, node.get("entity-type").asText());
+                      assertEquals(file.getId(), node.get(COMMENT_PARENT_ID_FIELD).textValue());
+                      assertEquals(xpath, node.get(ANNOTATION_XPATH_FIELD).textValue());
 
-        // Get permissions
-        Set<String> grantedPermissions = new HashSet<>(session.filterGrantedPermissions(session.getPrincipal(),
-                file.getRef(), Arrays.asList(Framework.getService(PermissionProvider.class).getPermissions())));
-        Set<String> permissions = StreamSupport.stream(node.get(ANNOTATION_PERMISSIONS_FIELD).spliterator(), false)
-                                               .map(JsonNode::textValue)
-                                               .collect(Collectors.toSet());
+                      // Get permissions
+                      Set<String> grantedPermissions = new HashSet<>(
+                              session.filterGrantedPermissions(session.getPrincipal(), file.getRef(),
+                                      List.of(Framework.getService(PermissionProvider.class).getPermissions())));
+                      Set<String> permissions = StreamSupport.stream(
+                              node.get(ANNOTATION_PERMISSIONS_FIELD).spliterator(), false)
+                                                             .map(JsonNode::textValue)
+                                                             .collect(Collectors.toSet());
 
-        assertEquals(grantedPermissions, permissions);
+                      assertEquals(grantedPermissions, permissions);
+                  });
     }
 
     @Test
@@ -140,23 +159,23 @@ public abstract class AbstractAnnotationAdapterTest extends BaseTest {
         String xpath = "file:content";
         var annotation = annotationService.createAnnotation(session, newAnnotation(file.getId(), xpath));
 
-        fetchInvalidations();
+        transactionalFeature.nextTransaction();
 
         assertNull(annotation.getText());
         annotation.setText("test");
         annotation.setAuthor("fakeAuthor");
         String jsonAnnotation = MarshallerHelper.objectToJson(annotation, CtxBuilder.session(session).get());
 
-        try (CloseableClientResponse response = getResponse(RequestType.PUT,
-                "id/" + file.getId() + "/@annotation/" + annotation.getId(), jsonAnnotation)) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        httpClient.buildPutRequest("/id/" + file.getId() + "/@annotation/" + annotation.getId())
+                  .entity(jsonAnnotation)
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(SC_OK, status.intValue()));
 
-            fetchInvalidations();
+        transactionalFeature.nextTransaction();
 
-            Annotation updatedAnnotation = annotationService.getAnnotation(session, annotation.getId());
-            assertEquals("test", updatedAnnotation.getText());
-            assertEquals(session.getPrincipal().getName(), updatedAnnotation.getAuthor());
-        }
+        Annotation updatedAnnotation = annotationService.getAnnotation(session, annotation.getId());
+
+        assertEquals("test", updatedAnnotation.getText());
+        assertEquals(session.getPrincipal().getName(), updatedAnnotation.getAuthor());
     }
 
     /*
@@ -167,55 +186,51 @@ public abstract class AbstractAnnotationAdapterTest extends BaseTest {
         // create jdoe user as a regular user
         createUser(JDOE);
         // re-compute read acls
-        fetchInvalidations();
-        // use it in rest calls
-        service = getServiceFor(JDOE, JDOE);
+        transactionalFeature.nextTransaction();
 
-        String annotationId;
         // use rest for creation in order to have the correct author
         var annotation = newAnnotation(file.getId(), "file:content", "Some text");
         String jsonComment = MarshallerHelper.objectToJson(annotation, CtxBuilder.session(session).get());
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "id/" + file.getId() + "/@annotation",
-                jsonComment)) {
-            assertEquals(Response.Status.CREATED.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            annotationId = node.get(COMMENT_ID_FIELD).textValue();
-        }
+        String annotationId = httpClient.buildPostRequest("/id/" + file.getId() + "/@annotation")
+                                        .credentials(JDOE, JDOE)
+                                        .entity(jsonComment)
+                                        .executeAndThen(new JsonNodeHandler(SC_CREATED),
+                                                node -> node.get(COMMENT_ID_FIELD).textValue());
 
         // now update the annotation
         annotation.setText("And now I update it");
         jsonComment = MarshallerHelper.objectToJson(annotation, CtxBuilder.session(session).get());
-        try (CloseableClientResponse response = getResponse(RequestType.PUT,
-                "id/" + file.getId() + "/@annotation/" + annotationId, jsonComment)) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            // assert the response
-            assertEquals("And now I update it", node.get(COMMENT_TEXT_FIELD).textValue());
-            fetchInvalidations();
-            // assert DB was updated
-            var updatedAnnotation = annotationService.getAnnotation(session, annotationId);
-            assertEquals("And now I update it", updatedAnnotation.getText());
-        }
+        httpClient.buildPutRequest("/id/" + file.getId() + "/@annotation/" + annotationId)
+                  .credentials(JDOE, JDOE)
+                  .entity(jsonComment)
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      // assert the response
+                      assertEquals("And now I update it", node.get(COMMENT_TEXT_FIELD).textValue());
+                      transactionalFeature.nextTransaction();
+                      // assert DB was updated
+                      var updatedAnnotation = annotationService.getAnnotation(session, annotationId);
+                      assertEquals("And now I update it", updatedAnnotation.getText());
+                  });
     }
 
     @Test
     public void testDeleteAnnotation() {
         String xpath = "files:files/0/file";
         var annotation = annotationService.createAnnotation(session, newAnnotation(file.getId(), xpath));
-        fetchInvalidations();
+        transactionalFeature.nextTransaction();
 
         assertTrue(session.exists(new IdRef(annotation.getId())));
 
-        try (CloseableClientResponse response = getResponse(RequestType.DELETE,
-                "id/" + file.getId() + "/@annotation/" + annotation.getId())) {
-            assertEquals(Response.Status.NO_CONTENT.getStatusCode(), response.getStatus());
-            fetchInvalidations();
-            assertFalse(session.exists(new IdRef(annotation.getId())));
-        }
+        httpClient.buildDeleteRequest("/id/" + file.getId() + "/@annotation/" + annotation.getId())
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_NO_CONTENT, status.intValue()));
+
+        transactionalFeature.nextTransaction();
+        assertFalse(session.exists(new IdRef(annotation.getId())));
     }
 
     @Test
-    public void testSearchAnnotations() throws IOException {
+    public void testSearchAnnotations() {
         DocumentModel file1 = session.createDocumentModel("/testDomain", "testDoc1", "File");
         file1 = session.createDocument(file1);
         DocumentModel file2 = session.createDocumentModel("/testDomain", "testDoc2", "File");
@@ -229,21 +244,17 @@ public abstract class AbstractAnnotationAdapterTest extends BaseTest {
         var annotation3 = annotationService.createAnnotation(session, newAnnotation(file1.getId(), xpath2));
         var annotation4 = annotationService.createAnnotation(session, newAnnotation(file2.getId(), xpath3));
         var annotation5 = annotationService.createAnnotation(session, newAnnotation(file2.getId(), xpath3));
-        fetchInvalidations();
+        transactionalFeature.nextTransaction();
 
-        MultivaluedMap<String, String> params1 = new MultivaluedMapImpl();
-        params1.putSingle(ANNOTATION_XPATH_FIELD, xpath1);
-        MultivaluedMap<String, String> params2 = new MultivaluedMapImpl();
-        params2.putSingle(ANNOTATION_XPATH_FIELD, xpath2);
-        MultivaluedMap<String, String> params3 = new MultivaluedMapImpl();
-        params3.putSingle(ANNOTATION_XPATH_FIELD, xpath3);
-
-        JsonNode node1 = getResponseAsJson(RequestType.GET, "id/" + file1.getId() + "/@annotation", params1).get(
-                "entries");
-        JsonNode node2 = getResponseAsJson(RequestType.GET, "id/" + file1.getId() + "/@annotation", params2).get(
-                "entries");
-        JsonNode node3 = getResponseAsJson(RequestType.GET, "id/" + file2.getId() + "/@annotation", params3).get(
-                "entries");
+        JsonNode node1 = httpClient.buildGetRequest("/id/" + file1.getId() + "/@annotation")
+                                   .addQueryParameter(ANNOTATION_XPATH_FIELD, xpath1)
+                                   .executeAndThen(new JsonNodeHandler(), node -> node.get("entries"));
+        JsonNode node2 = httpClient.buildGetRequest("/id/" + file1.getId() + "/@annotation")
+                                   .addQueryParameter(ANNOTATION_XPATH_FIELD, xpath2)
+                                   .executeAndThen(new JsonNodeHandler(), node -> node.get("entries"));
+        JsonNode node3 = httpClient.buildGetRequest("/id/" + file2.getId() + "/@annotation")
+                                   .addQueryParameter(ANNOTATION_XPATH_FIELD, xpath3)
+                                   .executeAndThen(new JsonNodeHandler(), node -> node.get("entries"));
 
         assertEquals(1, node1.size());
         assertEquals(2, node2.size());
@@ -251,30 +262,31 @@ public abstract class AbstractAnnotationAdapterTest extends BaseTest {
 
         assertEquals(annotation1.getId(), node1.get(0).get("id").textValue());
 
-        List<String> node2List = Arrays.asList(node2.get(0).get("id").textValue(), node2.get(1).get("id").textValue());
+        List<String> node2List = List.of(node2.get(0).get("id").textValue(), node2.get(1).get("id").textValue());
         assertTrue(node2List.contains(annotation2.getId()));
         assertTrue(node2List.contains(annotation3.getId()));
-        List<String> node3List = Arrays.asList(node3.get(0).get("id").textValue(), node3.get(1).get("id").textValue());
+        List<String> node3List = List.of(node3.get(0).get("id").textValue(), node3.get(1).get("id").textValue());
         assertTrue(node3List.contains(annotation4.getId()));
         assertTrue(node3List.contains(annotation5.getId()));
     }
 
     @Test
-    public void testGetExternalAnnotation() throws IOException {
+    public void testGetExternalAnnotation() {
         String xpath = "files:files/0/file";
         String entityId = "foo";
         String entity = "<entity></entity>";
         annotationService.createAnnotation(session, newExternalAnnotation(file.getId(), xpath, entityId, entity));
-        fetchInvalidations();
+        transactionalFeature.nextTransaction();
 
-        JsonNode node = getResponseAsJson(RequestType.GET, "id/" + file.getId() + "/@annotation/external/" + entityId);
-
-        assertEquals(ANNOTATION_ENTITY_TYPE, node.get("entity-type").asText());
-        assertEquals(entityId, node.get(EXTERNAL_ENTITY_ID_FIELD).textValue());
-        assertEquals("Test", node.get(EXTERNAL_ENTITY_ORIGIN_FIELD).textValue());
-        assertEquals(entity, node.get(EXTERNAL_ENTITY).textValue());
-        assertEquals(file.getId(), node.get(COMMENT_PARENT_ID_FIELD).textValue());
-        assertEquals(xpath, node.get(ANNOTATION_XPATH_FIELD).textValue());
+        httpClient.buildGetRequest("/id/" + file.getId() + "/@annotation/external/" + entityId)
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      assertEquals(ANNOTATION_ENTITY_TYPE, node.get("entity-type").asText());
+                      assertEquals(entityId, node.get(EXTERNAL_ENTITY_ID_FIELD).textValue());
+                      assertEquals("Test", node.get(EXTERNAL_ENTITY_ORIGIN_FIELD).textValue());
+                      assertEquals(entity, node.get(EXTERNAL_ENTITY).textValue());
+                      assertEquals(file.getId(), node.get(COMMENT_PARENT_ID_FIELD).textValue());
+                      assertEquals(xpath, node.get(ANNOTATION_XPATH_FIELD).textValue());
+                  });
     }
 
     @Test
@@ -286,19 +298,18 @@ public abstract class AbstractAnnotationAdapterTest extends BaseTest {
         annotation.setAuthor(author);
         annotation = annotationService.createAnnotation(session, annotation);
 
-        fetchInvalidations();
+        transactionalFeature.nextTransaction();
 
         annotation.setAuthor("titi");
         String jsonAnnotation = MarshallerHelper.objectToJson(annotation, CtxBuilder.session(session).get());
 
-        try (CloseableClientResponse response = getResponse(RequestType.PUT,
-                "id/" + file.getId() + "/@annotation/external/" + entityId, jsonAnnotation)) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        httpClient.buildPutRequest("/id/" + file.getId() + "/@annotation/external/" + entityId)
+                  .entity(jsonAnnotation)
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(SC_OK, status.intValue()));
 
-            fetchInvalidations();
-            Annotation updatedAnnotation = annotationService.getExternalAnnotation(session, file.getId(), entityId);
-            assertEquals(author, updatedAnnotation.getAuthor());
-        }
+        transactionalFeature.nextTransaction();
+        Annotation updatedAnnotation = annotationService.getExternalAnnotation(session, file.getId(), entityId);
+        assertEquals(author, updatedAnnotation.getAuthor());
     }
 
     /*
@@ -309,34 +320,33 @@ public abstract class AbstractAnnotationAdapterTest extends BaseTest {
         // create jdoe user as a regular user
         createUser(JDOE);
         // re-compute read acls
-        fetchInvalidations();
-        // use it in rest calls
-        service = getServiceFor(JDOE, JDOE);
+        transactionalFeature.nextTransaction();
 
         String entityId = "foo";
         // use rest for creation in order to have the correct author
         var annotation = newExternalAnnotation(file.getId(), "file:content", entityId);
         annotation.setText("Some text");
         String jsonComment = MarshallerHelper.objectToJson(annotation, CtxBuilder.session(session).get());
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "id/" + file.getId() + "/@annotation",
-                jsonComment)) {
-            assertEquals(Response.Status.CREATED.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildPostRequest("/id/" + file.getId() + "/@annotation")
+                  .credentials(JDOE, JDOE)
+                  .entity(jsonComment)
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_CREATED, status.intValue()));
 
         // now update the annotation
         annotation.setText("And now I update it");
         jsonComment = MarshallerHelper.objectToJson(annotation, CtxBuilder.session(session).get());
-        try (CloseableClientResponse response = getResponse(RequestType.PUT,
-                "id/" + file.getId() + "/@annotation/external/" + entityId, jsonComment)) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            // assert the response
-            assertEquals("And now I update it", node.get(COMMENT_TEXT_FIELD).textValue());
-            fetchInvalidations();
-            // assert DB was updated
-            var updatedAnnotation = annotationService.getExternalAnnotation(session, file.getId(), entityId);
-            assertEquals("And now I update it", updatedAnnotation.getText());
-        }
+        httpClient.buildPutRequest("/id/" + file.getId() + "/@annotation/external/" + entityId)
+                  .credentials(JDOE, JDOE)
+                  .entity(jsonComment)
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      // assert the response
+                      assertEquals("And now I update it", node.get(COMMENT_TEXT_FIELD).textValue());
+                  });
+        transactionalFeature.nextTransaction();
+        // assert DB was updated
+        var updatedAnnotation = annotationService.getExternalAnnotation(session, file.getId(), entityId);
+        assertEquals("And now I update it", updatedAnnotation.getText());
     }
 
     @Test
@@ -345,23 +355,22 @@ public abstract class AbstractAnnotationAdapterTest extends BaseTest {
         String entityId = "foo";
         var annotation = annotationService.createAnnotation(session,
                 newExternalAnnotation(file.getId(), xpath, entityId));
-        fetchInvalidations();
+        transactionalFeature.nextTransaction();
 
         assertTrue(session.exists(new IdRef(annotation.getId())));
 
-        try (CloseableClientResponse response = getResponse(RequestType.DELETE,
-                "id/" + file.getId() + "/@annotation/external/" + entityId)) {
-            assertEquals(Response.Status.NO_CONTENT.getStatusCode(), response.getStatus());
-            fetchInvalidations();
-            assertFalse(session.exists(new IdRef(annotation.getId())));
-        }
+        httpClient.buildDeleteRequest("/id/" + file.getId() + "/@annotation/external/" + entityId)
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_NO_CONTENT, status.intValue()));
+        transactionalFeature.nextTransaction();
+        assertFalse(session.exists(new IdRef(annotation.getId())));
     }
 
     @Test
-    public void testGetCommentsOfAnnotations() throws IOException {
+    public void testGetCommentsOfAnnotations() {
         var annotation1 = annotationService.createAnnotation(session, newAnnotation(file.getId(), "file:content"));
         var annotation2 = annotationService.createAnnotation(session, newAnnotation(file.getId(), "file:content"));
-        fetchInvalidations();
+        transactionalFeature.nextTransaction();
 
         List<String> commentIds = new ArrayList<>();
         for (int i = 0; i < 5; i++) {
@@ -373,28 +382,28 @@ public abstract class AbstractAnnotationAdapterTest extends BaseTest {
             subComment = commentManager.createComment(session, subComment);
             commentIds.add(subComment.getId());
         }
-        fetchInvalidations();
+        transactionalFeature.nextTransaction();
 
-        // GET method is deprecated
-        MultivaluedMap<String, String> annotationIds = new MultivaluedMapImpl();
-        annotationIds.put("annotationIds", Arrays.asList(annotation1.getId(), annotation2.getId()));
-        JsonNode node = getResponseAsJson(RequestType.GET, "id/" + file.getId() + "/@annotation/comments",
-                annotationIds);
         Set<String> expectedIds = new HashSet<>(commentIds);
-        Set<String> actualIds = new HashSet<>(node.findValuesAsText("id"));
-        assertEquals(10, actualIds.size());
-        assertEquals(expectedIds, actualIds);
+        // GET method is deprecated
+        httpClient.buildGetRequest("/id/" + file.getId() + "/@annotation/comments")
+                  .addQueryParameter("annotationIds", annotation1.getId())
+                  .addQueryParameter("annotationIds", annotation2.getId())
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      Set<String> actualIds = new HashSet<>(node.findValuesAsText("id"));
+                      assertEquals(10, actualIds.size());
+                      assertEquals(expectedIds, actualIds);
+                  });
 
         // POST method is the right API to use
-        String requestBody = mapper.writeValueAsString(Arrays.asList(annotation1.getId(), annotation2.getId()));
-        try (var response = getResponse(RequestType.POST, "id/" + file.getId() + "/@annotation/comments",
-                requestBody)) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            node = mapper.readTree(response.getEntityInputStream());
-            actualIds = new HashSet<>(node.findValuesAsText("id"));
-            assertEquals(10, actualIds.size());
-            assertEquals(expectedIds, actualIds);
-        }
+        String requestBody = "[\"" + String.join("\", \"", annotation1.getId(), annotation2.getId()) + "\"]";
+        httpClient.buildPostRequest("/id/" + file.getId() + "/@annotation/comments")
+                  .entity(requestBody)
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      Set<String> actualIds = new HashSet<>(node.findValuesAsText("id"));
+                      assertEquals(10, actualIds.size());
+                      assertEquals(expectedIds, actualIds);
+                  });
     }
 
 }

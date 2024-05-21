@@ -26,15 +26,15 @@ import static org.awaitility.Awaitility.await;
 import static org.awaitility.Duration.ONE_MINUTE;
 import static org.junit.Assert.assertEquals;
 
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 
-import org.json.JSONException;
 import org.junit.Test;
+import org.nuxeo.common.function.ThrowableConsumer;
 import org.nuxeo.ecm.restapi.test.ManagementBaseTest;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.handler.HttpStatusCodeHandler;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.test.runner.Deploy;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -47,107 +47,105 @@ import com.fasterxml.jackson.databind.JsonNode;
 public class TestMigrationObject extends ManagementBaseTest {
 
     @Test
-    public void testGet() throws IOException, JSONException {
-        try (CloseableClientResponse response = httpClientRule.get("/management/migration/dummy-migration")) {
-            assertEquals(SC_OK, response.getStatus());
-            String json = response.getEntity(String.class);
-            assertJsonResponse(json, "json/testGet.json");
-        }
+    public void testGet() {
+        httpClient.buildGetRequest("/management/migration/dummy-migration")
+                  .executeAndConsume(ThrowableConsumer.asConsumer(response -> {
+                      assertEquals(SC_OK, response.getStatus());
+                      String json = response.getEntityString();
+                      assertJsonResponse(json, "json/testGet.json");
+                  }));
     }
 
     @Test
     public void testGetWrongMigration() {
-        try (CloseableClientResponse response = httpClientRule.get("/management/migration/doesNotExistMigration")) {
-            assertEquals(SC_NOT_FOUND, response.getStatus());
-        }
+        httpClient.buildGetRequest("/management/migration/doesNotExistMigration")
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_NOT_FOUND, status.intValue()));
     }
 
     @Test
-    public void testGetList() throws IOException, JSONException {
-        try (CloseableClientResponse response = httpClientRule.get("/management/migration")) {
-            assertEquals(SC_OK, response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            Iterator<JsonNode> elements = node.get("entries").elements();
-            Map<String, String> entries = new HashMap<>();
-            elements.forEachRemaining(n -> entries.put(n.get("id").textValue(), n.toString()));
-            assertJsonResponse(entries.get("dummy-migration"), "json/testGet.json");
-            assertJsonResponse(entries.get("dummy-multi-migration"), "json/testGetMulti.json");
-        }
+    public void testGetList() {
+        httpClient.buildGetRequest("/management/migration")
+                  .executeAndConsume(new JsonNodeHandler(), ThrowableConsumer.asConsumer(node -> {
+                      Iterator<JsonNode> elements = node.get("entries").elements();
+                      Map<String, String> entries = new HashMap<>();
+                      elements.forEachRemaining(n -> entries.put(n.get("id").textValue(), n.toString()));
+                      assertJsonResponse(entries.get("dummy-migration"), "json/testGet.json");
+                      assertJsonResponse(entries.get("dummy-multi-migration"), "json/testGetMulti.json");
+                  }));
     }
 
     @Test
-    public void testProbeMigration() throws IOException, JSONException {
-        try (CloseableClientResponse response = httpClientRule.post("/management/migration/dummy-migration/probe",
-                null)) {
-            assertEquals(SC_OK, response.getStatus());
-            String json = response.getEntity(String.class);
-            assertJsonResponse(json, "json/testGet.json");
-        }
+    public void testProbeMigration() {
+        httpClient.buildPostRequest("/management/migration/dummy-migration/probe")
+                  .executeAndConsume(ThrowableConsumer.asConsumer(response -> {
+                      assertEquals(SC_OK, response.getStatus());
+                      String json = response.getEntityString();
+                      assertJsonResponse(json, "json/testGet.json");
+                  }));
     }
 
     @Test
-    public void testRunMigration() throws IOException, JSONException {
+    public void testRunMigration() {
         // Run a unique available migration step
-        try (CloseableClientResponse response = httpClientRule.post("/management/migration/dummy-migration/run",
-                null)) {
-            assertEquals(SC_ACCEPTED, response.getStatus());
-        }
-        try (CloseableClientResponse response = httpClientRule.get("/management/migration/dummy-migration")) {
-            assertEquals(SC_OK, response.getStatus());
-            String json = response.getEntity(String.class);
-            assertJsonResponse(json, "json/testGetAgain.json");
-        }
+        httpClient.buildPostRequest("/management/migration/dummy-migration/run")
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_ACCEPTED, status.intValue()));
+        httpClient.buildGetRequest("/management/migration/dummy-migration")
+                  .executeAndConsume(ThrowableConsumer.asConsumer(response -> {
+                      assertEquals(SC_OK, response.getStatus());
+                      String json = response.getEntityString();
+                      assertJsonResponse(json, "json/testGetAgain.json");
+                  }));
         // Now another migration step is the only one available
-        try (CloseableClientResponse response = httpClientRule.post("/management/migration/dummy-migration/run",
-                null)) {
-            assertEquals(SC_ACCEPTED, response.getStatus());
-        }
-        try (CloseableClientResponse response = httpClientRule.get("/management/migration/dummy-migration")) {
-            assertEquals(SC_OK, response.getStatus());
-            String json = response.getEntity(String.class);
-            assertJsonResponse(json, "json/testGetFinalStep.json");
-        }
+        httpClient.buildPostRequest("/management/migration/dummy-migration/run")
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_ACCEPTED, status.intValue()));
+        httpClient.buildGetRequest("/management/migration/dummy-migration")
+                  .executeAndConsume(ThrowableConsumer.asConsumer(response -> {
+                      assertEquals(SC_OK, response.getStatus());
+                      String json = response.getEntityString();
+                      assertJsonResponse(json, "json/testGetFinalStep.json");
+                  }));
     }
 
     @Test
-    public void testRunFailingMigration() throws IOException, JSONException, InterruptedException {
-        try (CloseableClientResponse response = httpClientRule.get(
-                "/management/migration/dummy-failing-bulk-migration")) {
-            assertEquals(SC_OK, response.getStatus());
-            String json = response.getEntity(String.class);
-            assertJsonResponse(json, "json/testGetFailing.json");
-        }
-        try (CloseableClientResponse response = httpClientRule.post(
-                "/management/migration/dummy-failing-bulk-migration/run", null)) {
-            assertEquals(SC_ACCEPTED, response.getStatus());
-        }
+    public void testRunFailingMigration() {
+        httpClient.buildGetRequest("/management/migration/dummy-failing-bulk-migration")
+                  .executeAndConsume(ThrowableConsumer.asConsumer(response -> {
+                      assertEquals(SC_OK, response.getStatus());
+                      String json = response.getEntityString();
+                      assertJsonResponse(json, "json/testGetFailing.json");
+                  }));
+        httpClient.buildPostRequest("/management/migration/dummy-failing-bulk-migration/run")
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_ACCEPTED, status.intValue()));
         await().dontCatchUncaughtExceptions().atMost(ONE_MINUTE).untilAsserted(() -> {
-            try (CloseableClientResponse response = httpClientRule.get(
-                    "/management/migration/dummy-failing-bulk-migration")) {
-                assertEquals(SC_OK, response.getStatus());
-                String json = response.getEntity(String.class);
-                assertJsonResponse(json, "json/testGetFailed.json");
-            }
+            httpClient.buildGetRequest("/management/migration/dummy-failing-bulk-migration")
+                      .executeAndConsume(ThrowableConsumer.asConsumer(response -> {
+                          assertEquals(SC_OK, response.getStatus());
+                          String json = response.getEntityString();
+                          assertJsonResponse(json, "json/testGetFailed.json");
+                      }));
         });
     }
 
     @Test
-    public void testRunMigrationStep() throws IOException, JSONException {
+    public void testRunMigrationStep() {
         // Can't run without specifying the desired step as there are multiple available steps
-        try (CloseableClientResponse response = httpClientRule.post("/management/migration/dummy-multi-migration/run",
-                null)) {
-            assertEquals(SC_BAD_REQUEST, response.getStatus());
-        }
+        httpClient.buildPostRequest("/management/migration/dummy-multi-migration/run")
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_BAD_REQUEST, status.intValue()));
         // Run a specific migration step
-        try (CloseableClientResponse response = httpClientRule.post(
-                "/management/migration/dummy-multi-migration/run/before-to-reallyAfter", null)) {
-            assertEquals(SC_ACCEPTED, response.getStatus());
-        }
-        try (CloseableClientResponse response = httpClientRule.get("/management/migration/dummy-multi-migration")) {
-            assertEquals(SC_OK, response.getStatus());
-            String json = response.getEntity(String.class);
-            assertJsonResponse(json, "json/testGetFinalStepMulti.json");
-        }
+        httpClient.buildPostRequest("/management/migration/dummy-multi-migration/run/before-to-reallyAfter")
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_ACCEPTED, status.intValue()));
+        httpClient.buildGetRequest("/management/migration/dummy-multi-migration")
+                  .executeAndConsume(ThrowableConsumer.asConsumer(response -> {
+                      assertEquals(SC_OK, response.getStatus());
+                      String json = response.getEntityString();
+                      assertJsonResponse(json, "json/testGetFinalStepMulti.json");
+                  }));
     }
 
 }

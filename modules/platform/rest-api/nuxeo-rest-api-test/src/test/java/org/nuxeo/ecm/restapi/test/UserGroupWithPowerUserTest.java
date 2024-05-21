@@ -19,6 +19,7 @@
 
 package org.nuxeo.ecm.restapi.test;
 
+import static org.apache.http.HttpStatus.SC_FORBIDDEN;
 import static org.junit.Assert.assertEquals;
 
 import java.io.IOException;
@@ -27,9 +28,10 @@ import java.util.Collections;
 import java.util.List;
 
 import javax.inject.Inject;
-import javax.ws.rs.core.Response;
+import javax.ws.rs.core.MediaType;
 
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.nuxeo.ecm.core.api.DocumentModel;
@@ -40,14 +42,12 @@ import org.nuxeo.ecm.core.test.annotations.RepositoryConfig;
 import org.nuxeo.ecm.platform.usermanager.NuxeoGroupImpl;
 import org.nuxeo.ecm.platform.usermanager.NuxeoPrincipalImpl;
 import org.nuxeo.ecm.platform.usermanager.UserManager;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
 import org.nuxeo.runtime.test.runner.TransactionalFeature;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.sun.jersey.api.client.ClientResponse;
 
 /**
  * @since 11.1
@@ -61,10 +61,20 @@ public class UserGroupWithPowerUserTest extends BaseUserTest {
     public static final String ADMINISTRATORS_GROUP = "administrators";
 
     @Inject
+    protected RestServerFeature restServerFeature;
+
+    @Inject
     protected TransactionalFeature txFeature;
 
     @Inject
     protected UserManager userManager;
+
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.builder()
+                                                                   .url(() -> restServerFeature.getRestApiUrl())
+                                                                   .credentials("leela", "pwd")
+                                                                   .contentType(MediaType.APPLICATION_JSON)
+                                                                   .build();
 
     @Before
     public void before() {
@@ -85,8 +95,6 @@ public class UserGroupWithPowerUserTest extends BaseUserTest {
         userManager.createGroup(group.getModel());
 
         txFeature.nextTransaction();
-
-        service = getServiceFor("leela", "pwd");
     }
 
     @Test
@@ -94,9 +102,10 @@ public class UserGroupWithPowerUserTest extends BaseUserTest {
         NuxeoGroup group = new NuxeoGroupImpl("foo");
         String groupJson = getGroupAsJson(group);
 
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "/group", groupJson)) {
-            assertForbiddenResponseMessage("Cannot create artifact", response);
-        }
+        httpClient.buildPostRequest("/group")
+                  .entity(groupJson)
+                  .executeAndConsume(new JsonNodeHandler(SC_FORBIDDEN),
+                          node -> assertEquals("Cannot create artifact", node.get("message").textValue()));
     }
 
     @Test
@@ -105,16 +114,17 @@ public class UserGroupWithPowerUserTest extends BaseUserTest {
         group.setLabel("foo");
         String groupJson = getGroupAsJson(group);
 
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "/group/administrators", groupJson)) {
-            assertForbiddenResponseMessage("User is not allowed to edit users", response);
-        }
+        httpClient.buildPutRequest("/group/administrators")
+                  .entity(groupJson)
+                  .executeAndConsume(new JsonNodeHandler(SC_FORBIDDEN),
+                          node -> assertEquals("User is not allowed to edit users", node.get("message").textValue()));
     }
 
     @Test
-    public void testPowerUserCannotDeleteAdministratorsGroup() throws IOException {
-        try (CloseableClientResponse response = getResponse(RequestType.DELETE, "/group/administrators")) {
-            assertForbiddenResponseMessage("User is not allowed to edit users", response);
-        }
+    public void testPowerUserCannotDeleteAdministratorsGroup() {
+        httpClient.buildDeleteRequest("/group/administrators")
+                  .executeAndConsume(new JsonNodeHandler(SC_FORBIDDEN),
+                          node -> assertEquals("User is not allowed to edit users", node.get("message").textValue()));
     }
 
     @Test
@@ -123,18 +133,20 @@ public class UserGroupWithPowerUserTest extends BaseUserTest {
         group.setParentGroups(Collections.singletonList(ADMINISTRATORS_GROUP));
         String groupJson = getGroupAsJson(group);
 
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "/group", groupJson)) {
-            assertForbiddenResponseMessage("Cannot create artifact", response);
-        }
+        httpClient.buildPostRequest("/group")
+                  .entity(groupJson)
+                  .executeAndConsume(new JsonNodeHandler(SC_FORBIDDEN),
+                          node -> assertEquals("Cannot create artifact", node.get("message").textValue()));
 
         // subgroup has administrators as parent group
         group = new NuxeoGroupImpl("bar");
         group.setParentGroups(Collections.singletonList("subgroup"));
         groupJson = getGroupAsJson(group);
 
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "/group", groupJson)) {
-            assertForbiddenResponseMessage("Cannot create artifact", response);
-        }
+        httpClient.buildPostRequest("/group")
+                  .entity(groupJson)
+                  .executeAndConsume(new JsonNodeHandler(SC_FORBIDDEN),
+                          node -> assertEquals("Cannot create artifact", node.get("message").textValue()));
     }
 
     @Test
@@ -143,9 +155,10 @@ public class UserGroupWithPowerUserTest extends BaseUserTest {
         principal.setGroups(Collections.singletonList(ADMINISTRATORS_GROUP));
         String userJson = getPrincipalAsJson(principal);
 
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "/user", userJson)) {
-            assertForbiddenResponseMessage("Cannot create artifact", response);
-        }
+        httpClient.buildPostRequest("/user")
+                  .entity(userJson)
+                  .executeAndConsume(new JsonNodeHandler(SC_FORBIDDEN),
+                          node -> assertEquals("Cannot create artifact", node.get("message").textValue()));
     }
 
     @Test
@@ -154,16 +167,17 @@ public class UserGroupWithPowerUserTest extends BaseUserTest {
         user.setFirstName("foo");
         String userJson = getPrincipalAsJson(user);
 
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "/user/Administrator", userJson)) {
-            assertForbiddenResponseMessage("User is not allowed to edit users", response);
-        }
+        httpClient.buildPutRequest("/user/Administrator")
+                  .entity(userJson)
+                  .executeAndConsume(new JsonNodeHandler(SC_FORBIDDEN),
+                          node -> assertEquals("User is not allowed to edit users", node.get("message").textValue()));
     }
 
     @Test
-    public void testPowerUserCannotDeleteAdministratorUser() throws IOException {
-        try (CloseableClientResponse response = getResponse(RequestType.DELETE, "/user/Administrator")) {
-            assertForbiddenResponseMessage("User is not allowed to edit users", response);
-        }
+    public void testPowerUserCannotDeleteAdministratorUser() {
+        httpClient.buildDeleteRequest("/user/Administrator")
+                  .executeAndConsume(new JsonNodeHandler(SC_FORBIDDEN),
+                          node -> assertEquals("User is not allowed to edit users", node.get("message").textValue()));
     }
 
     @Test
@@ -172,18 +186,20 @@ public class UserGroupWithPowerUserTest extends BaseUserTest {
         user.setGroups(Collections.singletonList(ADMINISTRATORS_GROUP));
         String userJson = getPrincipalAsJson(user);
 
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "/user/fry", userJson)) {
-            assertForbiddenResponseMessage("User is not allowed to edit users", response);
-        }
+        httpClient.buildPutRequest("/user/fry")
+                  .entity(userJson)
+                  .executeAndConsume(new JsonNodeHandler(SC_FORBIDDEN),
+                          node -> assertEquals("User is not allowed to edit users", node.get("message").textValue()));
 
         // subgroup has administrators as parent group
         user = userManager.getPrincipal("fry");
         user.setGroups(Collections.singletonList("subgroup"));
         userJson = getPrincipalAsJson(user);
 
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "/user/fry", userJson)) {
-            assertForbiddenResponseMessage("User is not allowed to edit users", response);
-        }
+        httpClient.buildPutRequest("/user/fry")
+                  .entity(userJson)
+                  .executeAndConsume(new JsonNodeHandler(SC_FORBIDDEN),
+                          node -> assertEquals("User is not allowed to edit users", node.get("message").textValue()));
     }
 
     @Test
@@ -194,44 +210,37 @@ public class UserGroupWithPowerUserTest extends BaseUserTest {
         user.setGroups(groups);
         String userJson = getPrincipalAsJson(user);
 
-        try (CloseableClientResponse response = getResponse(RequestType.PUT, "/user/leela", userJson)) {
-            assertForbiddenResponseMessage("User is not allowed to edit users", response);
-        }
+        httpClient.buildPutRequest("/user/leela")
+                  .entity(userJson)
+                  .executeAndConsume(new JsonNodeHandler(SC_FORBIDDEN),
+                          node -> assertEquals("User is not allowed to edit users", node.get("message").textValue()));
     }
 
     @Test
-    public void testPowerUserCannotAddAdministratorsGroup() throws IOException {
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "/user/fry/group/administrators")) {
-            assertForbiddenResponseMessage("Cannot edit user", response);
-        }
+    public void testPowerUserCannotAddAdministratorsGroup() {
+        httpClient.buildPostRequest("/user/fry/group/administrators")
+                  .executeAndConsume(new JsonNodeHandler(SC_FORBIDDEN),
+                          node -> assertEquals("Cannot edit user", node.get("message").textValue()));
     }
 
     @Test
-    public void testPowerUserCannotRemoveAdministratorsGroup() throws IOException {
-        try (CloseableClientResponse response = getResponse(RequestType.DELETE,
-                "/user/Administrator/group/administrators")) {
-            assertForbiddenResponseMessage("Cannot edit user", response);
-        }
+    public void testPowerUserCannotRemoveAdministratorsGroup() {
+        httpClient.buildDeleteRequest("/user/Administrator/group/administrators")
+                  .executeAndConsume(new JsonNodeHandler(SC_FORBIDDEN),
+                          node -> assertEquals("Cannot edit user", node.get("message").textValue()));
     }
 
     @Test
-    public void testPowerUserCannotAddUserToAdministratorsGroup() throws IOException {
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "/group/administrators/user/fry")) {
-            assertForbiddenResponseMessage("Cannot edit user", response);
-        }
+    public void testPowerUserCannotAddUserToAdministratorsGroup() {
+        httpClient.buildPostRequest("/group/administrators/user/fry")
+                  .executeAndConsume(new JsonNodeHandler(SC_FORBIDDEN),
+                          node -> assertEquals("Cannot edit user", node.get("message").textValue()));
     }
 
     @Test
-    public void testPowerUserCannotRemoveUserFromAdministratorsGroup() throws IOException {
-        try (CloseableClientResponse response = getResponse(RequestType.DELETE,
-                "/group/administrators/user/Administrator")) {
-            assertForbiddenResponseMessage("Cannot edit user", response);
-        }
-    }
-
-    protected void assertForbiddenResponseMessage(String expectedMessage, ClientResponse response) throws IOException {
-        assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatus());
-        JsonNode node = mapper.readTree(response.getEntityInputStream());
-        assertEquals(expectedMessage, node.get("message").textValue());
+    public void testPowerUserCannotRemoveUserFromAdministratorsGroup() {
+        httpClient.buildDeleteRequest("/group/administrators/user/Administrator")
+                  .executeAndConsume(new JsonNodeHandler(SC_FORBIDDEN),
+                          node -> assertEquals("Cannot edit user", node.get("message").textValue()));
     }
 }

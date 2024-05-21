@@ -42,12 +42,10 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpFilter;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import javax.ws.rs.core.MultivaluedMap;
 
 import org.apache.http.NameValuePair;
 import org.apache.http.client.utils.URLEncodedUtils;
-import org.junit.After;
-import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.nuxeo.common.utils.URIUtils;
@@ -57,19 +55,13 @@ import org.nuxeo.ecm.platform.oauth.consumers.OAuthConsumerRegistry;
 import org.nuxeo.ecm.platform.oauth.tokens.OAuthToken;
 import org.nuxeo.ecm.platform.oauth.tokens.OAuthTokenStore;
 import org.nuxeo.ecm.platform.test.NuxeoLoginFeature;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
-import org.nuxeo.jaxrs.test.JerseyClientHelper;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.HttpStatusCodeHandler;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
 import org.nuxeo.runtime.test.runner.ServletContainerFeature;
 import org.nuxeo.runtime.test.runner.TransactionalFeature;
-
-import com.sun.jersey.api.client.Client;
-import com.sun.jersey.api.client.ClientResponse;
-import com.sun.jersey.api.client.WebResource;
-import com.sun.jersey.api.client.WebResource.Builder;
-import com.sun.jersey.core.util.MultivaluedMapImpl;
 
 import net.oauth.OAuthAccessor;
 import net.oauth.OAuthConsumer;
@@ -86,13 +78,11 @@ public class TestOAuth1Protocol {
 
     protected static final String HMAC_SHA1 = "HMAC-SHA1";
 
-    protected static final String ENDPOINT = "oauth";
+    protected static final String ENDPOINT_REQUEST_TOKEN = "/oauth/request-token";
 
-    protected static final String ENDPOINT_REQUEST_TOKEN = "request-token";
+    protected static final String ENDPOINT_AUTHORIZE = "/oauth/authorize";
 
-    protected static final String ENDPOINT_AUTHORIZE = "authorize";
-
-    protected static final String ENDPOINT_ACCESS_TOKEN = "access-token";
+    protected static final String ENDPOINT_ACCESS_TOKEN = "/oauth/access-token";
 
     protected static final String CONSUMER = "myconsumer";
 
@@ -114,7 +104,11 @@ public class TestOAuth1Protocol {
     @Inject
     protected ServletContainerFeature servletContainerFeature;
 
-    protected Client client;
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.builder()
+                                                                   .url(() -> servletContainerFeature.getHttpUrl())
+                                                                   .redirectsEnabled(false)
+                                                                   .build();
 
     /**
      * Dummy filter that just records that it was executed.
@@ -134,30 +128,8 @@ public class TestOAuth1Protocol {
         }
     }
 
-    @Before
-    public void setUp() {
-        client = JerseyClientHelper.clientBuilder().setRedirectsEnabled(false).build();
-    }
-
-    @After
-    public void tearDown() {
-        client.destroy();
-    }
-
-    protected String getBaseURL() {
-        int port = servletContainerFeature.getPort();
-        return "http://localhost:" + port;
-    }
-
-    protected static MultivaluedMap<String, String> multivalued(Map<String, String> map) {
-        MultivaluedMap<String, String> mvmap = new MultivaluedMapImpl();
-        map.forEach((k, v) -> mvmap.putSingle(k, v));
-        return mvmap;
-    }
-
-    protected String signURL(String method, WebResource resource, Map<String, String> params, OAuthConsumer consumer,
+    protected String signURL(String method, String url, Map<String, String> params, OAuthConsumer consumer,
             String tokenSecret) throws Exception {
-        String url = resource.getURI().toASCIIString();
         OAuthMessage message = new OAuthMessage(method, url, params.entrySet(), null);
         OAuthAccessor accessor = new OAuthAccessor(consumer);
         accessor.tokenSecret = tokenSecret;
@@ -167,13 +139,10 @@ public class TestOAuth1Protocol {
 
     @Test
     public void testRequestTokenBadConsumerKey() {
-        WebResource resource = client.resource(getBaseURL()).path(ENDPOINT).path(ENDPOINT_REQUEST_TOKEN);
-        Map<String, String> params = new HashMap<>();
-        params.put("oauth_consumer_key", "nosuchconsumer");
-        ClientResponse cr = resource.queryParams(multivalued(params)).get(ClientResponse.class);
-        try (CloseableClientResponse response = CloseableClientResponse.of(cr)) {
-            assertEquals(SC_UNAUTHORIZED, response.getStatus());
-        }
+        httpClient.buildGetRequest(ENDPOINT_REQUEST_TOKEN)
+                  .addQueryParameter("oauth_consumer_key", "nosuchconsumer")
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_UNAUTHORIZED, status.intValue()));
     }
 
     @Test
@@ -193,23 +162,22 @@ public class TestOAuth1Protocol {
 
         txFeature.nextTransaction();
 
-        WebResource resource = client.resource(getBaseURL()).path(ENDPOINT).path(ENDPOINT_REQUEST_TOKEN);
         Map<String, String> params = new HashMap<>();
         params.put("oauth_consumer_key", CONSUMER);
         params.put("oauth_signature_method", HMAC_SHA1);
         params.put("oauth_timestamp", String.valueOf(System.currentTimeMillis() / 1000));
         params.put("oauth_nonce", "abcdefgh");
-        String signature = signURL("GET", resource, params, consumer, null);
+        String signature = signURL("GET", servletContainerFeature.getHttpUrl() + ENDPOINT_REQUEST_TOKEN, params,
+                consumer, null);
         params.put("oauth_signature", badSignature ? BAD_SIGNATURE : signature);
 
-        ClientResponse cr = resource.queryParams(multivalued(params)).get(ClientResponse.class);
-        try (CloseableClientResponse response = CloseableClientResponse.of(cr)) {
+        httpClient.buildGetRequest(ENDPOINT_REQUEST_TOKEN).addQueryParameters(params).executeAndConsume(response -> {
             if (badSignature) {
                 assertEquals(SC_UNAUTHORIZED, response.getStatus());
             } else {
                 assertEquals(SC_OK, response.getStatus());
-                assertEquals("application/x-www-form-urlencoded; charset=ISO-8859-1", response.getType().toString());
-                String body = response.getEntity(String.class);
+                assertEquals("application/x-www-form-urlencoded;charset=ISO-8859-1", response.getType());
+                String body = response.getEntityString();
                 List<NameValuePair> res = URLEncodedUtils.parse(body, UTF_8);
                 assertEquals(res.toString(), 3, res.size());
                 assertEquals("oauth_token", res.get(0).getName());
@@ -221,67 +189,63 @@ public class TestOAuth1Protocol {
                 OAuthToken rToken = tokenStore.getRequestToken(token);
                 assertNotNull(rToken);
             }
-        }
+        });
     }
 
     @Test
-    public void testAuthorizeGetBadToken() throws Exception {
-        WebResource resource = client.resource(getBaseURL()).path(ENDPOINT).path(ENDPOINT_AUTHORIZE);
-        Map<String, String> params = new HashMap<>();
-        params.put("oauth_token", "nosuchtoken");
-        ClientResponse cr = resource.queryParams(multivalued(params)).get(ClientResponse.class);
-        try (CloseableClientResponse response = CloseableClientResponse.of(cr)) {
-            assertEquals(SC_MOVED_TEMPORARILY, response.getStatus());
-            URI uri = response.getLocation();
-            String expectedRedir = "oauthGrant.jsp?oauth_token=nosuchtoken";
-            String expected = getBaseURL() + "/login.jsp?requestedUrl=" + URLEncoder.encode(expectedRedir, "UTF-8");
-            assertEquals(expected, uri.toASCIIString());
-        }
+    public void testAuthorizeGetBadToken() {
+        httpClient.buildGetRequest(ENDPOINT_AUTHORIZE)
+                  .addQueryParameter("oauth_token", "nosuchtoken")
+                  .executeAndConsume(response -> {
+                      assertEquals(SC_MOVED_TEMPORARILY, response.getStatus());
+                      URI uri = response.getLocation();
+                      String expectedRedir = "oauthGrant.jsp?oauth_token=nosuchtoken";
+                      String expected = servletContainerFeature.getHttpUrl() + "/login.jsp?requestedUrl="
+                              + URLEncoder.encode(expectedRedir, UTF_8);
+                      assertEquals(expected, uri.toASCIIString());
+                  });
     }
 
     @Test
-    public void testAuthorizeGet() throws Exception {
+    public void testAuthorizeGet() {
         // create request token
         OAuthToken rToken = tokenStore.createRequestToken(CONSUMER, CALLBACK_URL);
 
         txFeature.nextTransaction();
 
-        WebResource resource = client.resource(getBaseURL()).path(ENDPOINT).path(ENDPOINT_AUTHORIZE);
-        Map<String, String> params = new HashMap<>();
-        params.put("oauth_token", rToken.getToken());
-        ClientResponse cr = resource.queryParams(multivalued(params)).get(ClientResponse.class);
-        try (CloseableClientResponse response = CloseableClientResponse.of(cr)) {
-            assertEquals(SC_MOVED_TEMPORARILY, response.getStatus());
-            URI uri = response.getLocation();
-            String expectedRedir = "oauthGrant.jsp?oauth_token=" + rToken.getToken();
-            String expected = getBaseURL() + "/login.jsp?requestedUrl=" + URLEncoder.encode(expectedRedir, "UTF-8");
-            assertEquals(expected, uri.toASCIIString());
-        }
+        httpClient.buildGetRequest(ENDPOINT_AUTHORIZE)
+                  .addQueryParameter("oauth_token", rToken.getToken())
+                  .executeAndConsume(response -> {
+                      assertEquals(SC_MOVED_TEMPORARILY, response.getStatus());
+                      URI uri = response.getLocation();
+                      String expectedRedir = "oauthGrant.jsp?oauth_token=" + rToken.getToken();
+                      String expected = servletContainerFeature.getHttpUrl() + "/login.jsp?requestedUrl="
+                              + URLEncoder.encode(expectedRedir, UTF_8);
+                      assertEquals(expected, uri.toASCIIString());
+                  });
     }
 
     @Test
-    public void testAuthorizePost() throws Exception {
+    public void testAuthorizePost() {
         // create request token
         OAuthToken rToken = tokenStore.createRequestToken(CONSUMER, CALLBACK_URL);
 
         txFeature.nextTransaction();
 
-        WebResource resource = client.resource(getBaseURL()).path(ENDPOINT).path(ENDPOINT_AUTHORIZE);
-        Map<String, String> params = new HashMap<>();
-        params.put("oauth_token", rToken.getToken());
-        params.put("nuxeo_login", "bob");
-        params.put("duration", "60"); // minutes
-        ClientResponse cr = resource.queryParams(multivalued(params)).post(ClientResponse.class);
-        try (CloseableClientResponse response = CloseableClientResponse.of(cr)) {
-            assertEquals(SC_MOVED_TEMPORARILY, response.getStatus());
-            URI uri = response.getLocation();
+        httpClient.buildPostRequest(ENDPOINT_AUTHORIZE)
+                  .addQueryParameter("oauth_token", rToken.getToken())
+                  .addQueryParameter("nuxeo_login", "bob")
+                  .addQueryParameter("duration", "60") // minutes
+                  .executeAndConsume(response -> {
+                      assertEquals(SC_MOVED_TEMPORARILY, response.getStatus());
+                      URI uri = response.getLocation();
 
-            Map<String, String> parameters = new LinkedHashMap<>();
-            parameters.put("oauth_token", rToken.getToken());
-            parameters.put("oauth_verifier", rToken.getVerifier());
-            String expected = URIUtils.addParametersToURIQuery(CALLBACK_URL, parameters);
-            assertEquals(expected, uri.toASCIIString());
-        }
+                      Map<String, String> parameters = new LinkedHashMap<>();
+                      parameters.put("oauth_token", rToken.getToken());
+                      parameters.put("oauth_verifier", rToken.getVerifier());
+                      String expected = URIUtils.addParametersToURIQuery(CALLBACK_URL, parameters);
+                      assertEquals(expected, uri.toASCIIString());
+                  });
 
         // checks that a verifier was added to the request token
         assertNotNull(rToken.getVerifier());
@@ -316,7 +280,6 @@ public class TestOAuth1Protocol {
 
         txFeature.nextTransaction();
 
-        WebResource resource = client.resource(getBaseURL()).path(ENDPOINT).path(ENDPOINT_ACCESS_TOKEN);
         Map<String, String> params = new HashMap<>();
         params.put("oauth_consumer_key", CONSUMER);
         params.put("oauth_token", rToken.getToken());
@@ -324,17 +287,17 @@ public class TestOAuth1Protocol {
         params.put("oauth_signature_method", HMAC_SHA1);
         params.put("oauth_timestamp", String.valueOf(System.currentTimeMillis() / 1000));
         params.put("oauth_nonce", "123456789");
-        String signature = signURL("GET", resource, params, consumer, rToken.getTokenSecret());
+        String signature = signURL("GET", servletContainerFeature.getHttpUrl() + ENDPOINT_ACCESS_TOKEN, params,
+                consumer, rToken.getTokenSecret());
         params.put("oauth_signature", badSignature ? BAD_SIGNATURE : signature);
 
-        ClientResponse cr = resource.queryParams(multivalued(params)).get(ClientResponse.class);
-        try (CloseableClientResponse response = CloseableClientResponse.of(cr)) {
+        httpClient.buildGetRequest(ENDPOINT_ACCESS_TOKEN).addQueryParameters(params).executeAndConsume(response -> {
             if (badSignature || badVerifier) {
                 assertEquals(SC_UNAUTHORIZED, response.getStatus());
             } else {
                 assertEquals(SC_OK, response.getStatus());
-                assertEquals("application/x-www-form-urlencoded; charset=ISO-8859-1", response.getType().toString());
-                String body = response.getEntity(String.class);
+                assertEquals("application/x-www-form-urlencoded;charset=ISO-8859-1", response.getType());
+                String body = response.getEntityString();
                 List<NameValuePair> res = URLEncodedUtils.parse(body, UTF_8);
                 assertEquals(res.toString(), 2, res.size());
                 assertEquals("oauth_token", res.get(0).getName());
@@ -349,7 +312,7 @@ public class TestOAuth1Protocol {
                 assertEquals(aToken.getTokenSecret(), secret);
                 assertEquals("bob", aToken.getNuxeoLogin());
             }
-        }
+        });
     }
 
     @Test
@@ -387,22 +350,23 @@ public class TestOAuth1Protocol {
         txFeature.nextTransaction();
 
         DummyFilter.info = null;
-        WebResource resource = client.resource(getBaseURL()).path("somepage.html");
         Map<String, String> params = new HashMap<>();
         params.put("oauth_consumer_key", CONSUMER);
         params.put("oauth_token", token);
         params.put("oauth_signature_method", HMAC_SHA1);
         params.put("oauth_timestamp", String.valueOf(System.currentTimeMillis() / 1000));
         params.put("oauth_nonce", "123456789");
-        String signature = signURL("GET", resource, params, consumer, tokenSecret);
+        String signature = signURL("GET", servletContainerFeature.getHttpUrl() + "/somepage.html", params, consumer,
+                tokenSecret);
         params.put("oauth_signature", signature);
-        Builder builder = resource.queryParams(multivalued(params)).header("Authorization", "OAuth");
-        ClientResponse cr = builder.get(ClientResponse.class);
-        try (CloseableClientResponse response = CloseableClientResponse.of(cr)) {
-            assertEquals(SC_NOT_FOUND, response.getStatus());
-            // but the request was authenticated (our dummy filter captured the user)
-            assertEquals("Administrator", DummyFilter.info);
-        }
+        httpClient.buildGetRequest("/somepage.html")
+                  .addQueryParameters(params)
+                  .addHeader("Authorization", "OAuth")
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> {
+                      assertEquals(SC_NOT_FOUND, status.intValue());
+                      // but the request was authenticated (our dummy filter captured the user)
+                      assertEquals("Administrator", DummyFilter.info);
+                  });
     }
 
 }

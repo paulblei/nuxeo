@@ -24,6 +24,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.nuxeo.ecm.core.api.security.SecurityConstants.READ_WRITE;
+import static org.nuxeo.wopi.Constants.ACCESS_TOKEN_PARAMETER;
 import static org.nuxeo.wopi.Constants.HOST_EDIT_URL;
 import static org.nuxeo.wopi.Constants.HOST_VIEW_URL;
 import static org.nuxeo.wopi.Constants.NAME;
@@ -66,7 +67,10 @@ import org.nuxeo.ecm.core.api.Blob;
 import org.nuxeo.ecm.core.api.Blobs;
 import org.nuxeo.ecm.core.api.DocumentModel;
 import org.nuxeo.ecm.core.api.DocumentRef;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.CloseableHttpResponse;
+import org.nuxeo.http.test.HttpResponse;
+import org.nuxeo.http.test.handler.HttpStatusCodeHandler;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.api.Framework;
 import org.nuxeo.wopi.FileInfo;
 import org.nuxeo.wopi.Operation;
@@ -74,7 +78,6 @@ import org.nuxeo.wopi.lock.LockHelper;
 import org.skyscreamer.jsonassert.JSONAssert;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.sun.jersey.api.client.ClientResponse;
 
 /**
  * Tests the {@link FilesEndpoint} WOPI endpoint.
@@ -97,12 +100,12 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         toReplace.put(FILENAME_VAR, "test-file.docx");
         toReplace.put(CHANGE_TOKEN_VAR, "1-0");
         toReplace.put(ITEM_VERSION_VAR, "0");
-        try (CloseableClientResponse response = get(johnToken, blobDocFileId)) {
+        try (CloseableHttpResponse response = get(johnToken, blobDocFileId)) {
             checkJSONResponse(response, "json/CheckFileInfo-john-write.json", toReplace);
         }
 
         // success - joe has read access
-        try (CloseableClientResponse response = get(joeToken, blobDocFileId)) {
+        try (CloseableHttpResponse response = get(joeToken, blobDocFileId)) {
             checkJSONResponse(response, "json/CheckFileInfo-joe-read.json", toReplace);
         }
 
@@ -118,7 +121,7 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         toReplace.put(DOC_ID_VAR, convertibleBlobDoc.getId());
         toReplace.put(FILENAME_VAR, convertibleFilename);
         toReplace.put(ITEM_VERSION_VAR, "0");
-        try (CloseableClientResponse response = get(johnToken, convertibleBlobDocFileId)) {
+        try (CloseableHttpResponse response = get(johnToken, convertibleBlobDocFileId)) {
             checkJSONResponse(response, "json/CheckFileInfo-john-convert.json", toReplace);
         }
     }
@@ -129,28 +132,28 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         checkGetNotFound(CONTENTS_PATH);
 
         // fail - 412 - blob size exceeding Integer.MAX_VALUE
-        try (CloseableClientResponse response = get(joeToken, hugeBlobDocFileId, CONTENTS_PATH)) {
+        try (CloseableHttpResponse response = get(joeToken, hugeBlobDocFileId, CONTENTS_PATH)) {
             assertEquals(412, response.getStatus());
         }
 
         // fail - 412 - blob size exceeding X-WOPI-MaxExpectedSize header
         Map<String, String> headers = new HashMap<>();
         headers.put(MAX_EXPECTED_SIZE, "1");
-        try (CloseableClientResponse response = get(joeToken, headers, blobDocFileId, CONTENTS_PATH)) {
+        try (CloseableHttpResponse response = get(joeToken, headers, blobDocFileId, CONTENTS_PATH)) {
             assertEquals(412, response.getStatus());
         }
 
         // success - bad header
         headers.put(MAX_EXPECTED_SIZE, "foo");
         String expectedFileBlobString = expectedFileBlob.getString();
-        try (CloseableClientResponse response = get(joeToken, headers, blobDocFileId, CONTENTS_PATH)) {
+        try (CloseableHttpResponse response = get(joeToken, headers, blobDocFileId, CONTENTS_PATH)) {
             assertEquals(200, response.getStatus());
             Blob actualBlob = Blobs.createBlob(response.getEntityInputStream());
             assertEquals(expectedFileBlobString, actualBlob.getString());
         }
 
         // success - no header
-        try (CloseableClientResponse response = get(joeToken, blobDocFileId, CONTENTS_PATH)) {
+        try (CloseableHttpResponse response = get(joeToken, blobDocFileId, CONTENTS_PATH)) {
             assertEquals(200, response.getStatus());
             Blob actualBlob = Blobs.createBlob(response.getEntityInputStream());
             assertEquals(expectedFileBlobString, actualBlob.getString());
@@ -166,19 +169,19 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         checkPostNotFound(headers);
 
         // fail - 400 - no X-WOPI-Lock header
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(400, response.getStatus());
         }
 
         // fail - 400 - empty header
         headers.put(LOCK, "");
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(400, response.getStatus());
         }
 
         // fail - 409 - no write permission, cannot lock
         headers.put(LOCK, "foo");
-        try (CloseableClientResponse response = post(joeToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(joeToken, headers, blobDocFileId)) {
             assertEquals(409, response.getStatus());
         }
 
@@ -195,7 +198,7 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         // fail - 409 - locked by Nuxeo
         session.getDocument(hugeBlobDoc.getRef()).setLock();
         transactionalFeature.nextTransaction();
-        try (CloseableClientResponse response = post(johnToken, headers, hugeBlobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, hugeBlobDocFileId)) {
             assertEquals(409, response.getStatus());
             transactionalFeature.nextTransaction();
             assertTrue(session.getDocument(hugeBlobDoc.getRef()).isLocked());
@@ -211,25 +214,25 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
     }
 
     protected void assertLockResponseOK(String userToken, Map<String, String> headers) {
-        try (CloseableClientResponse response = post(userToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(userToken, headers, blobDocFileId)) {
             assertEquals(200, response.getStatus());
             transactionalFeature.nextTransaction();
             assertTrue(session.getDocument(blobDoc.getRef()).isLocked());
-            String itemVersion = response.getHeaders().getFirst(ITEM_VERSION);
+            String itemVersion = response.getFirstHeader(ITEM_VERSION);
             assertEquals("0", itemVersion);
         }
     }
 
-    protected void assertConflictResponseWithLock(CloseableClientResponse response) {
+    protected void assertConflictResponseWithLock(HttpResponse response) {
         assertEquals(409, response.getStatus());
         transactionalFeature.nextTransaction();
         assertTrue(session.getDocument(blobDoc.getRef()).isLocked());
-        String lock = response.getHeaders().getFirst(LOCK);
+        String lock = response.getFirstHeader(LOCK);
         assertEquals("foo", lock);
     }
 
     protected void assertConflictResponseWithLock(Map<String, String> headers) {
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertConflictResponseWithLock(response);
         }
     }
@@ -243,9 +246,9 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         checkPostNotFound(headers);
 
         // success - 200 - document not locked
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(200, response.getStatus());
-            String lock = response.getHeaders().getFirst(LOCK);
+            String lock = response.getFirstHeader(LOCK);
             assertEquals("", lock);
         }
 
@@ -253,7 +256,7 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         headers.put(OVERRIDE, Operation.LOCK.name());
         String expectedLock = "foo";
         headers.put(LOCK, expectedLock);
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(200, response.getStatus());
             transactionalFeature.nextTransaction();
             assertTrue(session.getDocument(blobDoc.getRef()).isLocked());
@@ -262,16 +265,16 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         // success - 200 - return lock
         headers.remove(LOCK);
         headers.put(OVERRIDE, Operation.GET_LOCK.name());
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(200, response.getStatus());
-            String lock = response.getHeaders().getFirst(LOCK);
+            String lock = response.getFirstHeader(LOCK);
             assertEquals(expectedLock, lock);
         }
 
         // fail - 409 - locked by Nuxeo
         session.getDocument(hugeBlobDoc.getRef()).setLock();
         transactionalFeature.nextTransaction();
-        try (CloseableClientResponse response = post(johnToken, headers, hugeBlobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, hugeBlobDocFileId)) {
             assertEquals(409, response.getStatus());
             transactionalFeature.nextTransaction();
             assertTrue(session.getDocument(hugeBlobDoc.getRef()).isLocked());
@@ -287,28 +290,28 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         checkPostNotFound(headers);
 
         // fail - 400 - no X-WOPI-Lock header
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(400, response.getStatus());
         }
 
         // fail - 400 - empty header
         headers.put(LOCK, "");
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(400, response.getStatus());
         }
 
         // fail - 409 - not locked
         headers.put(LOCK, "foo");
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(409, response.getStatus());
-            String lock = response.getHeaders().getFirst(LOCK);
+            String lock = response.getFirstHeader(LOCK);
             assertEquals("", lock);
         }
 
         // fail - 409 - locked by Nuxeo
         session.getDocument(hugeBlobDoc.getRef()).setLock();
         transactionalFeature.nextTransaction();
-        try (CloseableClientResponse response = post(johnToken, headers, hugeBlobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, hugeBlobDocFileId)) {
             assertEquals(409, response.getStatus());
             transactionalFeature.nextTransaction();
             assertTrue(session.getDocument(hugeBlobDoc.getRef()).isLocked());
@@ -316,7 +319,7 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
 
         // lock document from WOPI client
         headers.put(OVERRIDE, Operation.LOCK.name());
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(200, response.getStatus());
             transactionalFeature.nextTransaction();
             assertTrue(session.getDocument(blobDoc.getRef()).isLocked());
@@ -324,7 +327,7 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
 
         // fail - 409 - no write permission, cannot unlock
         headers.put(OVERRIDE, Operation.UNLOCK.name());
-        try (CloseableClientResponse response = post(joeToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(joeToken, headers, blobDocFileId)) {
             assertEquals(409, response.getStatus());
             transactionalFeature.nextTransaction();
             assertTrue(session.getDocument(blobDoc.getRef()).isLocked());
@@ -336,11 +339,11 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
 
         // success - 200 - can unlock
         headers.put(LOCK, "foo");
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(200, response.getStatus());
             transactionalFeature.nextTransaction();
             assertFalse(session.getDocument(blobDoc.getRef()).isLocked());
-            String itemVersion = response.getHeaders().getFirst(ITEM_VERSION);
+            String itemVersion = response.getFirstHeader(ITEM_VERSION);
             assertEquals("0", itemVersion);
         }
     }
@@ -354,28 +357,28 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         checkPostNotFound(headers);
 
         // fail - 400 - no X-WOPI-Lock header
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(400, response.getStatus());
         }
 
         // fail - 400 - empty header
         headers.put(LOCK, "");
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(400, response.getStatus());
         }
 
         // fail - 409 - not locked
         headers.put(LOCK, "foo");
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(409, response.getStatus());
-            String lock = response.getHeaders().getFirst(LOCK);
+            String lock = response.getFirstHeader(LOCK);
             assertEquals("", lock);
         }
 
         // fail - 409 - locked by Nuxeo
         session.getDocument(hugeBlobDoc.getRef()).setLock();
         transactionalFeature.nextTransaction();
-        try (CloseableClientResponse response = post(johnToken, headers, hugeBlobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, hugeBlobDocFileId)) {
             assertEquals(409, response.getStatus());
             transactionalFeature.nextTransaction();
             assertTrue(session.getDocument(hugeBlobDoc.getRef()).isLocked());
@@ -383,7 +386,7 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
 
         // lock document from WOPI client
         headers.put(OVERRIDE, Operation.LOCK.name());
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(200, response.getStatus());
             transactionalFeature.nextTransaction();
             assertTrue(session.getDocument(blobDoc.getRef()).isLocked());
@@ -391,7 +394,7 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
 
         // fail - 409 - no write permission, cannot unlock
         headers.put(OVERRIDE, Operation.REFRESH_LOCK.name());
-        try (CloseableClientResponse response = post(joeToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(joeToken, headers, blobDocFileId)) {
             assertEquals(409, response.getStatus());
             transactionalFeature.nextTransaction();
             assertTrue(session.getDocument(blobDoc.getRef()).isLocked());
@@ -403,7 +406,7 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
 
         // success - 200 - can refresh lock
         headers.put(LOCK, "foo");
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(200, response.getStatus());
             transactionalFeature.nextTransaction();
             assertTrue(session.getDocument(blobDoc.getRef()).isLocked());
@@ -419,31 +422,31 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         checkPostNotFound(headers);
 
         // fail - 400 - no X-WOPI-Lock header
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(400, response.getStatus());
         }
 
         // fail - 400 - empty header
         headers.put(LOCK, "");
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(400, response.getStatus());
         }
 
         // fail - 409 - cannot unlock and relock unlocked document
         headers.put(LOCK, "foo");
         headers.put(OLD_LOCK, "foo");
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(409, response.getStatus());
             transactionalFeature.nextTransaction();
             assertFalse(session.getDocument(blobDoc.getRef()).isLocked());
-            String lock = response.getHeaders().getFirst(LOCK);
+            String lock = response.getFirstHeader(LOCK);
             assertEquals("", lock);
         }
 
         // lock document from WOPI client
         headers.remove(OLD_LOCK);
         headers.put(LOCK, "foo");
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(200, response.getStatus());
             transactionalFeature.nextTransaction();
             assertTrue(session.getDocument(blobDoc.getRef()).isLocked());
@@ -452,7 +455,7 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         // success - 200 - lock and relock
         headers.put(LOCK, "bar");
         headers.put(OLD_LOCK, "foo");
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(200, response.getStatus());
             transactionalFeature.nextTransaction();
             assertTrue(session.getDocument(blobDoc.getRef()).isLocked());
@@ -462,18 +465,18 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
 
         // fail - 409 - locked by another client
         headers.put(LOCK, "bar");
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(409, response.getStatus());
             transactionalFeature.nextTransaction();
             assertTrue(session.getDocument(blobDoc.getRef()).isLocked());
-            String lock = response.getHeaders().getFirst(LOCK);
+            String lock = response.getFirstHeader(LOCK);
             assertEquals("bar", lock);
         }
 
         // fail - 409 - locked by Nuxeo
         session.getDocument(hugeBlobDoc.getRef()).setLock();
         transactionalFeature.nextTransaction();
-        try (CloseableClientResponse response = post(johnToken, headers, hugeBlobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, hugeBlobDocFileId)) {
             assertEquals(409, response.getStatus());
             transactionalFeature.nextTransaction();
             assertTrue(session.getDocument(hugeBlobDoc.getRef()).isLocked());
@@ -488,13 +491,13 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         checkPostNotFound(headers, CONTENTS_PATH);
 
         // fail - 409 - joe has no write permission
-        try (CloseableClientResponse response = post(joeToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(joeToken, headers, blobDocFileId)) {
             assertEquals(409, response.getStatus());
         }
 
         // success - 200 - blob renamed
         headers.put(REQUESTED_NAME, "renamed-test-file");
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(200, response.getStatus());
             checkJSONResponse(response, "json/RenameFile.json");
             transactionalFeature.nextTransaction();
@@ -506,7 +509,7 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         // lock document from WOPI client
         headers.put(OVERRIDE, Operation.LOCK.name());
         headers.put(LOCK, "foo");
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(200, response.getStatus());
             transactionalFeature.nextTransaction();
             assertTrue(session.getDocument(blobDoc.getRef()).isLocked());
@@ -515,12 +518,12 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         // fail - 409 - joe has no write permission
         headers.put(OVERRIDE, Operation.RENAME_FILE.name());
         headers.put(REQUESTED_NAME, "renamed-wopi-locked-test-file");
-        try (CloseableClientResponse response = post(joeToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(joeToken, headers, blobDocFileId)) {
             assertEquals(409, response.getStatus());
         }
 
         // success - 200 - blob renamed
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(200, response.getStatus());
             checkJSONResponse(response, "json/RenameFile-wopiLocked.json");
             transactionalFeature.nextTransaction();
@@ -532,9 +535,9 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         // fail - 409 - locked by another client
         headers.put(LOCK, "bar");
         headers.put(REQUESTED_NAME, "renamed-wopi-locked-other-client-test-file");
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(409, response.getStatus());
-            String lock = response.getHeaders().getFirst(LOCK);
+            String lock = response.getFirstHeader(LOCK);
             assertEquals("foo", lock);
             transactionalFeature.nextTransaction();
             DocumentModel doc = session.getDocument(blobDoc.getRef());
@@ -549,7 +552,7 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         transactionalFeature.nextTransaction();
         headers.remove(LOCK);
         headers.put(REQUESTED_NAME, "renamed-wopi-locked-nuxeo-test-file");
-        try (CloseableClientResponse response = post(johnToken, headers, hugeBlobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, hugeBlobDocFileId)) {
             assertEquals(409, response.getStatus());
             transactionalFeature.nextTransaction();
             DocumentModel doc = session.getDocument(hugeBlobDoc.getRef());
@@ -569,13 +572,12 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         checkPostNotFound(headers, CONTENTS_PATH);
 
         // fail - 409 - joe has no write permission
-        try (CloseableClientResponse response = post(joeToken, data, headers, zeroLengthBlobDocFileId, CONTENTS_PATH)) {
+        try (CloseableHttpResponse response = post(joeToken, data, headers, zeroLengthBlobDocFileId, CONTENTS_PATH)) {
             assertEquals(409, response.getStatus());
         }
 
         // success - 200 - blob updated
-        try (CloseableClientResponse response = post(johnToken, data, headers, zeroLengthBlobDocFileId,
-                CONTENTS_PATH)) {
+        try (CloseableHttpResponse response = post(johnToken, data, headers, zeroLengthBlobDocFileId, CONTENTS_PATH)) {
             assertEquals(200, response.getStatus());
             transactionalFeature.nextTransaction();
             Blob updatedBlob = (Blob) session.getDocument(zeroLengthBlobDoc.getRef())
@@ -583,21 +585,21 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
             assertNotNull(updatedBlob);
             assertEquals("new content", updatedBlob.getString());
             assertEquals("zero-length-blob", updatedBlob.getFilename());
-            String itemVersion = response.getHeaders().getFirst(ITEM_VERSION);
+            String itemVersion = response.getFirstHeader(ITEM_VERSION);
             assertEquals("1", itemVersion);
         }
 
         // fail - 409 - not locked and blob present
-        try (CloseableClientResponse response = post(johnToken, data, headers, blobDocFileId, CONTENTS_PATH)) {
+        try (CloseableHttpResponse response = post(johnToken, data, headers, blobDocFileId, CONTENTS_PATH)) {
             assertEquals(409, response.getStatus());
-            String lock = response.getHeaders().getFirst(LOCK);
+            String lock = response.getFirstHeader(LOCK);
             assertEquals("", lock);
         }
 
         // lock document from WOPI client
         headers.put(LOCK, "foo");
         headers.put(OVERRIDE, Operation.LOCK.name());
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(200, response.getStatus());
             transactionalFeature.nextTransaction();
             assertTrue(session.getDocument(blobDoc.getRef()).isLocked());
@@ -605,32 +607,32 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
 
         // fail - 409 - joe has no write permission
         headers.put(OVERRIDE, Operation.PUT.name());
-        try (CloseableClientResponse response = post(joeToken, data, headers, blobDocFileId, CONTENTS_PATH)) {
+        try (CloseableHttpResponse response = post(joeToken, data, headers, blobDocFileId, CONTENTS_PATH)) {
             assertEquals(409, response.getStatus());
         }
 
         // success - 200 - blob updated
-        try (CloseableClientResponse response = post(johnToken, data, headers, blobDocFileId, CONTENTS_PATH)) {
+        try (CloseableHttpResponse response = post(johnToken, data, headers, blobDocFileId, CONTENTS_PATH)) {
             assertEquals(200, response.getStatus());
             transactionalFeature.nextTransaction();
             Blob updatedBlob = (Blob) session.getDocument(blobDoc.getRef()).getPropertyValue(FILE_CONTENT_PROPERTY);
             assertNotNull(updatedBlob);
             assertEquals("new content", updatedBlob.getString());
             assertEquals("test-file.docx", updatedBlob.getFilename());
-            String itemVersion = response.getHeaders().getFirst(ITEM_VERSION);
+            String itemVersion = response.getFirstHeader(ITEM_VERSION);
             assertEquals("1", itemVersion);
         }
 
         // fail - 409 - locked by another client
         headers.put(LOCK, "bar");
-        try (CloseableClientResponse response = post(johnToken, data, headers, blobDocFileId, CONTENTS_PATH)) {
+        try (CloseableHttpResponse response = post(johnToken, data, headers, blobDocFileId, CONTENTS_PATH)) {
             assertConflictResponseWithLock(response);
         }
 
         // fail - 409 - locked by Nuxeo
         session.getDocument(hugeBlobDoc.getRef()).setLock();
         transactionalFeature.nextTransaction();
-        try (CloseableClientResponse response = post(johnToken, data, headers, hugeBlobDocFileId, CONTENTS_PATH)) {
+        try (CloseableHttpResponse response = post(johnToken, data, headers, hugeBlobDocFileId, CONTENTS_PATH)) {
             assertEquals(409, response.getStatus());
             transactionalFeature.nextTransaction();
             assertTrue(session.getDocument(hugeBlobDoc.getRef()).isLocked());
@@ -645,7 +647,7 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         // lock document from WOPI client
         headers.put(LOCK, "foo");
         headers.put(OVERRIDE, Operation.LOCK.name());
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(200, response.getStatus());
             transactionalFeature.nextTransaction();
             blobDoc.refresh();
@@ -654,7 +656,7 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
 
         // 1st PUT - success - 200 - blob updated
         headers.put(OVERRIDE, Operation.PUT.name());
-        try (CloseableClientResponse response = post(johnToken, data, headers, blobDocFileId, CONTENTS_PATH)) {
+        try (CloseableHttpResponse response = post(johnToken, data, headers, blobDocFileId, CONTENTS_PATH)) {
             assertEquals(200, response.getStatus());
             transactionalFeature.nextTransaction();
             blobDoc.refresh();
@@ -662,12 +664,12 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
             assertNotNull(updatedBlob);
             assertEquals("new content", updatedBlob.getString());
             assertEquals("test-file.docx", updatedBlob.getFilename());
-            var itemVersion = response.getHeaders().getFirst(ITEM_VERSION);
+            var itemVersion = response.getFirstHeader(ITEM_VERSION);
             assertEquals("1", itemVersion);
         }
 
         // 2nd PUT - success - 200 - same blob
-        try (CloseableClientResponse response = post(johnToken, data, headers, blobDocFileId, CONTENTS_PATH)) {
+        try (CloseableHttpResponse response = post(johnToken, data, headers, blobDocFileId, CONTENTS_PATH)) {
             assertEquals(200, response.getStatus());
             transactionalFeature.nextTransaction();
             blobDoc.refresh();
@@ -675,13 +677,13 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
             assertNotNull(updatedBlob);
             assertEquals("new content", updatedBlob.getString());
             assertEquals("test-file.docx", updatedBlob.getFilename());
-            var itemVersion = response.getHeaders().getFirst(ITEM_VERSION);
+            var itemVersion = response.getFirstHeader(ITEM_VERSION);
             // item version has changed
             assertEquals("2", itemVersion);
         }
 
         // 3rd PUT - success - 200 - same blob
-        try (CloseableClientResponse response = post(johnToken, data, headers, blobDocFileId, CONTENTS_PATH)) {
+        try (CloseableHttpResponse response = post(johnToken, data, headers, blobDocFileId, CONTENTS_PATH)) {
             assertEquals(200, response.getStatus());
             transactionalFeature.nextTransaction();
             blobDoc.refresh();
@@ -689,7 +691,7 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
             assertNotNull(updatedBlob);
             assertEquals("new content", updatedBlob.getString());
             assertEquals("test-file.docx", updatedBlob.getFilename());
-            var itemVersion = response.getHeaders().getFirst(ITEM_VERSION);
+            var itemVersion = response.getFirstHeader(ITEM_VERSION);
             // item version has changed
             assertEquals("3", itemVersion);
         }
@@ -704,20 +706,20 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         checkPostNotFound(headers);
 
         // fail - 501 - no headers
-        try (CloseableClientResponse response = post(johnToken, data, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, data, headers, blobDocFileId)) {
             assertEquals(501, response.getStatus());
         }
 
         // fail - 501 - both headers
         headers.put(SUGGESTED_TARGET, "new file.docx");
         headers.put(RELATIVE_TARGET, "new file.docx");
-        try (CloseableClientResponse response = post(johnToken, data, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, data, headers, blobDocFileId)) {
             assertEquals(501, response.getStatus());
         }
 
         // fail - 501 - file creation not supported
         headers.remove(SUGGESTED_TARGET);
-        try (CloseableClientResponse response = post(joeToken, data, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(joeToken, data, headers, blobDocFileId)) {
             assertEquals(501, response.getStatus());
         }
     }
@@ -731,7 +733,7 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
 
         // success - 200 - conversion from relative target
         headers.put(RELATIVE_TARGET, "new file.docx");
-        try (CloseableClientResponse response = post(johnToken, data, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, data, headers, blobDocFileId)) {
             // a version is done before updating the document, thus 0.1+
             assertPutRelativeFileCreateVersionResponse(response, blobDoc.getRef(), FILE_CONTENT_PROPERTY,
                     "new file.docx", getBaseURL(), data, "0.1+");
@@ -741,7 +743,7 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         // success - 200 - conversion from suggested extension
         headers.remove(RELATIVE_TARGET);
         headers.put(SUGGESTED_TARGET, ".docx");
-        try (CloseableClientResponse response = post(johnToken, data, headers, zeroLengthBlobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, data, headers, zeroLengthBlobDocFileId)) {
             // a version is done before updating the document, thus 0.1+
             assertPutRelativeFileCreateVersionResponse(response, zeroLengthBlobDoc.getRef(), FILE_CONTENT_PROPERTY,
                     "zero-length-blob.docx", getBaseURL(), data, "0.1+");
@@ -749,7 +751,7 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
 
         // success - 200 - conversion from suggested filename
         headers.put(SUGGESTED_TARGET, "foo.docx");
-        try (CloseableClientResponse response = post(johnToken, data, headers, hugeBlobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, data, headers, hugeBlobDocFileId)) {
             // a version is done before updating the document, thus 0.1+
             assertPutRelativeFileCreateVersionResponse(response, hugeBlobDoc.getRef(), FILE_CONTENT_PROPERTY,
                     "foo.docx", getBaseURL(), data, "0.1+");
@@ -760,7 +762,7 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         String customWOPIBaseURL = "https://foo";
         try {
             Framework.getProperties().setProperty(WOPI_BASE_URL_PROPERTY, customWOPIBaseURL);
-            try (CloseableClientResponse response = post(johnToken, data, headers, hugeBlobDocFileId)) {
+            try (CloseableHttpResponse response = post(johnToken, data, headers, hugeBlobDocFileId)) {
                 // a version is done before updating the document, thus 0.2+
                 assertPutRelativeFileCreateVersionResponse(response, hugeBlobDoc.getRef(), FILE_CONTENT_PROPERTY,
                         "bar.docx", customWOPIBaseURL, data, "0.2+");
@@ -770,10 +772,10 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         }
     }
 
-    protected void assertPutRelativeFileCreateVersionResponse(CloseableClientResponse response, DocumentRef docRef,
+    protected void assertPutRelativeFileCreateVersionResponse(CloseableHttpResponse response, DocumentRef docRef,
             String xpath, String newName, String wopiBaseURL, String newContent, String newVersion) throws IOException {
         assertEquals(200, response.getStatus());
-        JsonNode node = mapper.readTree(response.getEntityInputStream());
+        JsonNode node = MAPPER.readTree(response.getEntityInputStream());
         assertEquals(newName, node.get(NAME).asText());
         JsonNode jsonNode = node.get(URL);
         assertNotNull(jsonNode);
@@ -806,12 +808,12 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
 
         checkPostNotFound(headers);
 
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(501, response.getStatus());
         }
 
         headers.put(URL_TYPE, "foo");
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(501, response.getStatus());
         }
 
@@ -820,13 +822,13 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         toReplace.put(REPOSITORY_VAR, blobDoc.getRepositoryName());
         toReplace.put(DOC_ID_VAR, blobDoc.getId());
         toReplace.put(XPATH_VAR, FILE_CONTENT_PROPERTY);
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(200, response.getStatus());
             checkJSONResponse(response, "json/GetShareUrl-read-only.json", toReplace);
         }
 
         headers.put(URL_TYPE, SHARE_URL_READ_WRITE);
-        try (CloseableClientResponse response = post(johnToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, blobDocFileId)) {
             assertEquals(200, response.getStatus());
             checkJSONResponse(response, "json/GetShareUrl-read-write.json", toReplace);
         }
@@ -836,7 +838,7 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
     public void testOnAttachment() throws IOException, JSONException {
         DocumentRef multipleBlobsDocRef = multipleBlobsDoc.getRef();
         // CheckFileInfo
-        try (CloseableClientResponse response = get(johnToken, multipleBlobsDocAttachmentId)) {
+        try (CloseableHttpResponse response = get(johnToken, multipleBlobsDocAttachmentId)) {
             Map<String, String> toReplace = new HashMap<>();
             toReplace.put(REPOSITORY_VAR, multipleBlobsDoc.getRepositoryName());
             toReplace.put(DOC_ID_VAR, multipleBlobsDoc.getId());
@@ -848,7 +850,7 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         }
 
         // GetFile
-        try (CloseableClientResponse response = get(joeToken, multipleBlobsDocAttachmentId, CONTENTS_PATH)) {
+        try (CloseableHttpResponse response = get(joeToken, multipleBlobsDocAttachmentId, CONTENTS_PATH)) {
             assertEquals(200, response.getStatus());
             Blob actualBlob = Blobs.createBlob(response.getEntityInputStream());
             assertEquals(expectedAttachmentBlob.getString(), actualBlob.getString());
@@ -858,18 +860,18 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         Map<String, String> headers = new HashMap<>();
         headers.put(OVERRIDE, Operation.LOCK.name());
         headers.put(LOCK, "foo");
-        try (CloseableClientResponse response = post(johnToken, headers, multipleBlobsDocAttachmentId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, multipleBlobsDocAttachmentId)) {
             assertEquals(200, response.getStatus());
             transactionalFeature.nextTransaction();
             assertTrue(session.getDocument(multipleBlobsDocRef).isLocked());
-            String itemVersion = response.getHeaders().getFirst(ITEM_VERSION);
+            String itemVersion = response.getFirstHeader(ITEM_VERSION);
             assertEquals("0", itemVersion);
         }
 
         // PutFile
         String data = "new attachment";
         headers.put(OVERRIDE, Operation.PUT.name());
-        try (CloseableClientResponse response = post(johnToken, data, headers, multipleBlobsDocAttachmentId,
+        try (CloseableHttpResponse response = post(johnToken, data, headers, multipleBlobsDocAttachmentId,
                 CONTENTS_PATH)) {
             assertEquals(200, response.getStatus());
             transactionalFeature.nextTransaction();
@@ -878,7 +880,7 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
             assertNotNull(updatedBlob);
             assertEquals("new attachment", updatedBlob.getString());
             assertEquals("test-attachment.xlsx", updatedBlob.getFilename());
-            String itemVersion = response.getHeaders().getFirst(ITEM_VERSION);
+            String itemVersion = response.getFirstHeader(ITEM_VERSION);
             assertEquals("1", itemVersion);
         }
 
@@ -887,7 +889,7 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         headers.put(OVERRIDE, Operation.PUT_RELATIVE.name());
         headers.put(FILE_CONVERSION, "True");
         headers.put(SUGGESTED_TARGET, ".docx");
-        try (CloseableClientResponse response = post(johnToken, data, headers, multipleBlobsDocAttachmentId)) {
+        try (CloseableHttpResponse response = post(johnToken, data, headers, multipleBlobsDocAttachmentId)) {
             // a version is done before updating the document, thus 0.1+
             assertPutRelativeFileCreateVersionResponse(response, multipleBlobsDoc.getRef(), FILES_FIRST_FILE_PROPERTY,
                     "test-attachment.docx", getBaseURL(), data, "0.1+");
@@ -901,22 +903,22 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         Map<String, String> headers = new HashMap<>();
         headers.put(OVERRIDE, Operation.LOCK.name());
         headers.put(LOCK, "fooContent");
-        try (CloseableClientResponse response = post(johnToken, headers, multipleBlobsDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, multipleBlobsDocFileId)) {
             assertEquals(200, response.getStatus());
             transactionalFeature.nextTransaction();
             assertTrue(session.getDocument(multipleBlobsDocRef).isLocked());
-            String itemVersion = response.getHeaders().getFirst(ITEM_VERSION);
+            String itemVersion = response.getFirstHeader(ITEM_VERSION);
             assertEquals("0", itemVersion);
         }
 
         // Lock files:files/0/file
         headers.put(LOCK, "fooAttachment");
-        try (CloseableClientResponse response = post(johnToken, headers, multipleBlobsDocAttachmentId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, multipleBlobsDocAttachmentId)) {
             assertEquals(200, response.getStatus());
             transactionalFeature.nextTransaction();
             // doc is still locked
             assertTrue(session.getDocument(multipleBlobsDocRef).isLocked());
-            String itemVersion = response.getHeaders().getFirst(ITEM_VERSION);
+            String itemVersion = response.getFirstHeader(ITEM_VERSION);
             assertEquals("0", itemVersion);
         }
 
@@ -924,43 +926,43 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         // Such a call to Lock can happen when another user is asking to edit the file but it should behave the same way
         // if the call is made by the same user so we can use johnToken here
         headers.put(LOCK, "fooContent");
-        try (CloseableClientResponse response = post(johnToken, headers, multipleBlobsDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, multipleBlobsDocFileId)) {
             assertEquals(200, response.getStatus());
             transactionalFeature.nextTransaction();
             assertTrue(session.getDocument(multipleBlobsDocRef).isLocked());
-            String itemVersion = response.getHeaders().getFirst(ITEM_VERSION);
+            String itemVersion = response.getFirstHeader(ITEM_VERSION);
             assertEquals("0", itemVersion);
         }
 
         // Unlock files:files/0/file
         headers.put(OVERRIDE, Operation.UNLOCK.name());
         // fail - 409 - lock mismatch
-        try (CloseableClientResponse response = post(johnToken, headers, multipleBlobsDocAttachmentId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, multipleBlobsDocAttachmentId)) {
             assertEquals(409, response.getStatus());
             transactionalFeature.nextTransaction();
             assertTrue(session.getDocument(multipleBlobsDocRef).isLocked());
-            String lock = response.getHeaders().getFirst(LOCK);
+            String lock = response.getFirstHeader(LOCK);
             assertEquals("fooAttachment", lock);
         }
 
         // Unlock file:content
-        try (CloseableClientResponse response = post(johnToken, headers, multipleBlobsDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, multipleBlobsDocFileId)) {
             assertEquals(200, response.getStatus());
             transactionalFeature.nextTransaction();
             // document is still locked, WOPI lock set on files:files/0/file
             assertTrue(session.getDocument(multipleBlobsDocRef).isLocked());
-            String itemVersion = response.getHeaders().getFirst(ITEM_VERSION);
+            String itemVersion = response.getFirstHeader(ITEM_VERSION);
             assertEquals("0", itemVersion);
         }
 
         // Unlock files:files/0/file
         headers.put(LOCK, "fooAttachment");
-        try (CloseableClientResponse response = post(johnToken, headers, multipleBlobsDocAttachmentId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, multipleBlobsDocAttachmentId)) {
             assertEquals(200, response.getStatus());
             transactionalFeature.nextTransaction();
             // document is now unlocked, no more WOPI lock set
             assertFalse(session.getDocument(multipleBlobsDocRef).isLocked());
-            String itemVersion = response.getHeaders().getFirst(ITEM_VERSION);
+            String itemVersion = response.getFirstHeader(ITEM_VERSION);
             assertEquals("0", itemVersion);
         }
     }
@@ -972,7 +974,7 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         Map<String, String> headers = new HashMap<>();
         headers.put(OVERRIDE, Operation.LOCK.name());
         headers.put(LOCK, "fooContent");
-        try (CloseableClientResponse response = post(johnToken, headers, multipleBlobsDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, multipleBlobsDocFileId)) {
             assertEquals(200, response.getStatus());
             transactionalFeature.nextTransaction();
             assertTrue(session.getDocument(multipleBlobsDocRef).isLocked());
@@ -983,7 +985,7 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         // Unlock and relock file:content
         headers.put(LOCK, "barContent");
         headers.put(OLD_LOCK, "fooContent");
-        try (CloseableClientResponse response = post(johnToken, headers, multipleBlobsDocFileId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, multipleBlobsDocFileId)) {
             assertEquals(200, response.getStatus());
             transactionalFeature.nextTransaction();
             assertTrue(session.getDocument(multipleBlobsDocRef).isLocked());
@@ -994,7 +996,7 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         // Lock files:files/0/file
         headers.put(LOCK, "fooAttachment");
         headers.remove(OLD_LOCK);
-        try (CloseableClientResponse response = post(johnToken, headers, multipleBlobsDocAttachmentId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, multipleBlobsDocAttachmentId)) {
             assertEquals(200, response.getStatus());
             transactionalFeature.nextTransaction();
             assertTrue(session.getDocument(multipleBlobsDocRef).isLocked());
@@ -1005,7 +1007,7 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
         // Unlock and relock files:files/0/file
         headers.put(LOCK, "barAttachment");
         headers.put(OLD_LOCK, "fooAttachment");
-        try (CloseableClientResponse response = post(johnToken, headers, multipleBlobsDocAttachmentId)) {
+        try (CloseableHttpResponse response = post(johnToken, headers, multipleBlobsDocAttachmentId)) {
             assertEquals(200, response.getStatus());
             transactionalFeature.nextTransaction();
             assertTrue(session.getDocument(multipleBlobsDocRef).isLocked());
@@ -1031,105 +1033,96 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
 
         // unlock file as joe
         headers.put(OVERRIDE, Operation.UNLOCK.name());
-        try (CloseableClientResponse response = post(joeToken, headers, blobDocFileId)) {
+        try (CloseableHttpResponse response = post(joeToken, headers, blobDocFileId)) {
             assertEquals(200, response.getStatus());
             transactionalFeature.nextTransaction();
             assertFalse(session.getDocument(blobDoc.getRef()).isLocked());
-            String itemVersion = response.getHeaders().getFirst(ITEM_VERSION);
+            String itemVersion = response.getFirstHeader(ITEM_VERSION);
             assertEquals("0", itemVersion);
         }
     }
 
     // NXP-30585
     @Test
-    public void testItemVersionUpdateWithBlobUpdate() throws IOException {
+    public void testItemVersionUpdateWithBlobUpdate() {
         // file:content
-        try (CloseableClientResponse response = get(johnToken, blobDocFileId)) {
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals("0", node.get("Version").asText());
-        }
+        httpClient.buildGetRequest(blobDocFileId)
+                  .addQueryParameter(ACCESS_TOKEN_PARAMETER, johnToken)
+                  .executeAndConsume(new JsonNodeHandler(), node -> assertEquals("0", node.get("Version").asText()));
 
         DocumentModel doc = session.getDocument(blobDoc.getRef());
         doc.setPropertyValue(FILE_CONTENT_PROPERTY, (Serializable) createBlob("foo", "foo.docx"));
         session.saveDocument(doc);
         transactionalFeature.nextTransaction();
 
-        try (CloseableClientResponse response = get(johnToken, blobDocFileId)) {
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals("1", node.get("Version").asText());
-        }
+        httpClient.buildGetRequest(blobDocFileId)
+                  .addQueryParameter(ACCESS_TOKEN_PARAMETER, johnToken)
+                  .executeAndConsume(new JsonNodeHandler(), node -> assertEquals("1", node.get("Version").asText()));
 
         // files:files/0/file
-        try (CloseableClientResponse response = get(johnToken, multipleBlobsDocAttachmentId)) {
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals("0", node.get("Version").asText());
-        }
+        httpClient.buildGetRequest(multipleBlobsDocAttachmentId)
+                  .addQueryParameter(ACCESS_TOKEN_PARAMETER, johnToken)
+                  .executeAndConsume(new JsonNodeHandler(), node -> assertEquals("0", node.get("Version").asText()));
 
         doc = session.getDocument(multipleBlobsDoc.getRef());
         doc.setPropertyValue(FILES_FIRST_FILE_PROPERTY, (Serializable) createBlob("foo", "foo.docx"));
         session.saveDocument(doc);
         transactionalFeature.nextTransaction();
 
-        try (CloseableClientResponse response = get(johnToken, multipleBlobsDocAttachmentId)) {
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals("1", node.get("Version").asText());
-        }
+        httpClient.buildGetRequest(multipleBlobsDocAttachmentId)
+                  .addQueryParameter(ACCESS_TOKEN_PARAMETER, johnToken)
+                  .executeAndConsume(new JsonNodeHandler(), node -> assertEquals("1", node.get("Version").asText()));
+
     }
 
     // NXP-32034
     @Test
-    public void testNoItemVersionUpdateWithNonEditableBlobUpdate() throws IOException {
+    public void testNoItemVersionUpdateWithNonEditableBlobUpdate() {
         // file:content
-        try (CloseableClientResponse response = get(johnToken, blobDocFileId)) {
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals("0", node.get("Version").asText());
-        }
+        httpClient.buildGetRequest(blobDocFileId)
+                  .addQueryParameter(ACCESS_TOKEN_PARAMETER, johnToken)
+                  .executeAndConsume(new JsonNodeHandler(), node -> assertEquals("0", node.get("Version").asText()));
 
         DocumentModel doc = session.getDocument(blobDoc.getRef());
         doc.setPropertyValue(FILE_CONTENT_PROPERTY, (Serializable) createBlob("foo", "foo.docx"));
         doc = session.saveDocument(doc);
         transactionalFeature.nextTransaction();
 
-        try (CloseableClientResponse response = get(johnToken, blobDocFileId)) {
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals("1", node.get("Version").asText());
-        }
+        httpClient.buildGetRequest(blobDocFileId)
+                  .addQueryParameter(ACCESS_TOKEN_PARAMETER, johnToken)
+                  .executeAndConsume(new JsonNodeHandler(), node -> assertEquals("1", node.get("Version").asText()));
 
         // update with a non WOPI editable blob
         doc.setPropertyValue(FILE_CONTENT_PROPERTY, (Serializable) createBlob("bar", "bar.txt"));
         session.saveDocument(doc);
         transactionalFeature.nextTransaction();
 
-        try (CloseableClientResponse response = get(johnToken, blobDocFileId)) {
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals("1", node.get("Version").asText());
-        }
+        httpClient.buildGetRequest(blobDocFileId)
+                  .addQueryParameter(ACCESS_TOKEN_PARAMETER, johnToken)
+                  .executeAndConsume(new JsonNodeHandler(), node -> assertEquals("1", node.get("Version").asText()));
 
         // files:files/0/file
-        try (CloseableClientResponse response = get(johnToken, multipleBlobsDocAttachmentId)) {
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals("0", node.get("Version").asText());
-        }
+        httpClient.buildGetRequest(multipleBlobsDocAttachmentId)
+                  .addQueryParameter(ACCESS_TOKEN_PARAMETER, johnToken)
+                  .executeAndConsume(new JsonNodeHandler(), node -> assertEquals("0", node.get("Version").asText()));
 
         doc = session.getDocument(multipleBlobsDoc.getRef());
         doc.setPropertyValue(FILES_FIRST_FILE_PROPERTY, (Serializable) createBlob("foo", "foo.docx"));
         doc = session.saveDocument(doc);
         transactionalFeature.nextTransaction();
 
-        try (CloseableClientResponse response = get(johnToken, multipleBlobsDocAttachmentId)) {
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals("1", node.get("Version").asText());
-        }
+        httpClient.buildGetRequest(multipleBlobsDocAttachmentId)
+                  .addQueryParameter(ACCESS_TOKEN_PARAMETER, johnToken)
+                  .executeAndConsume(new JsonNodeHandler(), node -> assertEquals("1", node.get("Version").asText()));
 
         // update with a non WOPI editable blob
         doc.setPropertyValue(FILES_FIRST_FILE_PROPERTY, (Serializable) createBlob("bar", "bar.txt"));
         session.saveDocument(doc);
         transactionalFeature.nextTransaction();
 
-        try (CloseableClientResponse response = get(johnToken, multipleBlobsDocAttachmentId)) {
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals("1", node.get("Version").asText());
-        }
+        httpClient.buildGetRequest(multipleBlobsDocAttachmentId)
+                  .addQueryParameter(ACCESS_TOKEN_PARAMETER, johnToken)
+                  .executeAndConsume(new JsonNodeHandler(), node -> assertEquals("1", node.get("Version").asText()));
     }
 
     protected Blob createBlob(String content, String filename) {
@@ -1142,14 +1135,16 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
 
     protected void checkPostNotFound(Map<String, String> headers, String additionalPath) {
         // not found
-        try (CloseableClientResponse response = get(johnToken, headers, "foo", additionalPath)) {
-            assertEquals(404, response.getStatus());
-        }
+        httpClient.buildGetRequest("foo/" + additionalPath)
+                  .addQueryParameter(ACCESS_TOKEN_PARAMETER, johnToken)
+                  .addHeaders(headers)
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(404, status.intValue()));
 
         // no blob
-        try (CloseableClientResponse response = get(johnToken, headers, noBlobDocFileId, additionalPath)) {
-            assertEquals(404, response.getStatus());
-        }
+        httpClient.buildGetRequest(noBlobDocFileId + "/" + additionalPath)
+                  .addQueryParameter(ACCESS_TOKEN_PARAMETER, johnToken)
+                  .addHeaders(headers)
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(404, status.intValue()));
     }
 
     protected void checkGetNotFound() {
@@ -1158,27 +1153,26 @@ public class TestFilesEndpoint extends AbstractTestFilesEndpoint {
 
     protected void checkGetNotFound(String additionalPath) {
         // not found
-        try (CloseableClientResponse response = get(johnToken, "foo", additionalPath)) {
-            assertEquals(404, response.getStatus());
-        }
+        httpClient.buildGetRequest("foo/" + additionalPath)
+                  .addQueryParameter(ACCESS_TOKEN_PARAMETER, johnToken)
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(404, status.intValue()));
 
         // no blob
-        try (CloseableClientResponse response = get(johnToken, noBlobDocFileId, additionalPath)) {
-            assertEquals(404, response.getStatus());
-        }
+        httpClient.buildGetRequest(noBlobDocFileId + "/" + additionalPath)
+                  .addQueryParameter(ACCESS_TOKEN_PARAMETER, johnToken)
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(404, status.intValue()));
     }
 
-    protected void checkJSONResponse(ClientResponse response, String expectedJSONFile)
-            throws IOException, JSONException {
+    protected void checkJSONResponse(HttpResponse response, String expectedJSONFile) throws IOException, JSONException {
         checkJSONResponse(response, expectedJSONFile, Collections.emptyMap());
     }
 
-    protected void checkJSONResponse(ClientResponse response, String expectedJSONFile, Map<String, String> toReplace)
+    protected void checkJSONResponse(HttpResponse response, String expectedJSONFile, Map<String, String> toReplace)
             throws IOException, JSONException {
         assertEquals(200, response.getStatus());
         toReplace = new HashMap<>(toReplace);
         toReplace.put("PORT", String.valueOf(servletContainerFeature.getPort()));
-        String json = response.getEntity(String.class);
+        String json = response.getEntityString();
         File file = FileUtils.getResourceFileFromContext(expectedJSONFile);
         String expected = readFile(file, toReplace);
         JSONAssert.assertEquals(expected, json, true);

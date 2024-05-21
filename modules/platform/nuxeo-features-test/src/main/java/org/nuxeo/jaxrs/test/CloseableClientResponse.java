@@ -30,7 +30,9 @@ import com.sun.jersey.spi.MessageBodyWorkers;
  * Wraps a {@link ClientResponse} to make it {@link AutoCloseable}.
  *
  * @since 9.3
+ * @deprecated since 2023.13, use {@link org.nuxeo.http.test.HttpClientTestRule} instead
  */
+@Deprecated(since = "2023.13", forRemoval = true)
 public class CloseableClientResponse extends ClientResponse implements AutoCloseable {
 
     public CloseableClientResponse(StatusType statusType, InBoundHeaders headers, InputStream entity,

@@ -19,24 +19,26 @@
 
 package org.nuxeo.ecm.restapi.server.jaxrs.search.test;
 
+import static org.apache.http.HttpStatus.SC_ACCEPTED;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 import static org.nuxeo.ecm.core.bulk.message.BulkStatus.State.COMPLETED;
 
-import java.io.IOException;
 import java.time.Duration;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
 import javax.inject.Inject;
-import javax.ws.rs.core.MultivaluedMap;
-import javax.ws.rs.core.Response;
+import javax.ws.rs.core.MediaType;
 
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.nuxeo.common.function.ThrowableConsumer;
+import org.nuxeo.common.function.ThrowableFunction;
+import org.nuxeo.ecm.core.api.CoreSession;
 import org.nuxeo.ecm.core.api.DocumentModel;
 import org.nuxeo.ecm.core.bulk.BulkService;
 import org.nuxeo.ecm.core.bulk.CoreBulkFeature;
@@ -46,16 +48,15 @@ import org.nuxeo.ecm.core.test.CoreFeature;
 import org.nuxeo.ecm.core.test.annotations.Granularity;
 import org.nuxeo.ecm.core.test.annotations.RepositoryConfig;
 import org.nuxeo.ecm.restapi.server.jaxrs.search.test.bulk.RemoveDocumentAction;
-import org.nuxeo.ecm.restapi.test.BaseTest;
+import org.nuxeo.ecm.restapi.test.JsonNodeHelper;
 import org.nuxeo.ecm.restapi.test.RestServerFeature;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.sun.jersey.core.util.MultivaluedMapImpl;
 
 /**
  * @since 10.3
@@ -68,40 +69,53 @@ import com.sun.jersey.core.util.MultivaluedMapImpl;
 @Deploy("org.nuxeo.ecm.platform.restapi.server.search")
 @Deploy("org.nuxeo.ecm.platform.restapi.test:pageprovider-test-contrib.xml")
 @Deploy("org.nuxeo.ecm.platform.restapi.test:bulk-actions-test-contrib.xml")
-public class BulkActionTest extends BaseTest {
+public class BulkActionTest {
 
     @Inject
     protected CoreFeature coreFeature;
 
     @Inject
+    protected RestServerFeature restServerFeature;
+
+    @Inject
     protected BulkService bulkService;
 
+    @Inject
+    protected CoreSession session;
+
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.builder()
+                                                                   .url(() -> restServerFeature.getRestApiUrl())
+                                                                   .adminCredentials()
+                                                                   .accept(MediaType.APPLICATION_JSON)
+                                                                   .contentType(MediaType.APPLICATION_JSON)
+                                                                   .header("X-NXDocumentProperties", "dublincore")
+                                                                   .build();
+
     @Test
-    public void testExecuteBulkActionWithQuery() throws Exception {
-        MultivaluedMap<String, String> queryParams = new MultivaluedMapImpl();
-        queryParams.add("query", "SELECT * FROM Document WHERE ecm:isVersion = 0");
+    public void testExecuteBulkActionWithQuery() {
+        Map<String, String> queryParams = Map.of("query", "SELECT * FROM Document WHERE ecm:isVersion = 0");
         testExecuteBulkAction("search", queryParams);
     }
 
     @Test
-    public void testExecuteBulkActionWithQueryAndNamedParams() throws Exception {
+    public void testExecuteBulkActionWithQueryAndNamedParams() {
         DocumentModel folder = RestServerInit.getFolder(1, session);
-        MultivaluedMap<String, String> queryParams = new MultivaluedMapImpl();
-        queryParams.add("query",
-                "SELECT * FROM Document WHERE " + "ecm:parentId = :parentIdVar AND\n"
-                        + "        ecm:mixinType != 'HiddenInNavigation' AND dc:title " + "IN (:note1,:note2)\n"
-                        + "        AND ecm:isVersion = 0 AND " + "ecm:isTrashed = 0");
-        queryParams.add("note1", "Note 1");
-        queryParams.add("note2", "Note 2");
-        queryParams.add("parentIdVar", folder.getId());
+        Map<String, String> queryParams = Map.of( //
+                "query", """
+                        SELECT * FROM Document WHERE ecm:parentId = :parentIdVar AND
+                                ecm:mixinType != 'HiddenInNavigation' AND dc:title IN (:note1,:note2)
+                                AND ecm:isVersion = 0 AND ecm:isTrashed = 0""", //
+                "note1", "Note 1", //
+                "note2", "Note 2", //
+                "parentIdVar", folder.getId());
         testExecuteBulkAction("search", queryParams);
     }
 
     @Test
-    public void testExecuteBulkActionWithPageProvider() throws Exception {
+    public void testExecuteBulkActionWithPageProvider() {
         DocumentModel folder = RestServerInit.getFolder(1, session);
-        MultivaluedMap<String, String> queryParams = new MultivaluedMapImpl();
-        queryParams.add("queryParams", folder.getId());
+        Map<String, String> queryParams = Map.of("queryParams", folder.getId());
         testExecuteBulkAction("search/pp/TEST_PP", queryParams);
     }
 
@@ -109,118 +123,99 @@ public class BulkActionTest extends BaseTest {
      * @since 10.3
      */
     @Test
-    public void testExecuteBulkActionWithPageProviderAndEmptyParams() throws Exception {
-        try (CloseableClientResponse response = getResponse(RequestType.POST,
-                "search/pp/TEST_PP_ALL_NOTE/bulk/" + RemoveDocumentAction.ACTION_NAME, "", null, null, null)) {
+    public void testExecuteBulkActionWithPageProviderAndEmptyParams() {
+        httpClient.buildPostRequest("search/pp/TEST_PP_ALL_NOTE/bulk/" + RemoveDocumentAction.ACTION_NAME)
+                  .executeAndConsume(new JsonNodeHandler(SC_ACCEPTED), ThrowableConsumer.asConsumer(node -> {
+                      String commandId = node.get("commandId").textValue();
 
-            assertEquals(Response.Status.ACCEPTED.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            String commandId = node.get("commandId").textValue();
+                      assertTrue("Bulk action didn't finish", bulkService.await(Duration.ofSeconds(10)));
 
-            assertTrue("Bulk action didn't finish", bulkService.await(Duration.ofSeconds(10)));
+                      BulkStatus status = bulkService.getStatus(commandId);
+                      assertNotNull(status);
+                      assertEquals(COMPLETED, status.getState());
+                  }));
 
-            BulkStatus status = bulkService.getStatus(commandId);
-            assertNotNull(status);
-            assertEquals(COMPLETED, status.getState());
-        }
-
-        try (CloseableClientResponse response = getResponse(RequestType.GET,
-                "search/pp/TEST_PP_ALL_NOTE/execute")) {
-
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            List<JsonNode> noteNodes = getEntries(node);
-            assertTrue(noteNodes.isEmpty());
-        }
+        httpClient.buildGetRequest("search/pp/TEST_PP_ALL_NOTE/execute")
+                  .executeAndConsume(new JsonNodeHandler(),
+                          node -> assertTrue(JsonNodeHelper.getEntries(node).isEmpty()));
     }
 
     @Test
-    public void testExecuteBulkActionWithPageProviderAndNamedParams() throws Exception {
+    public void testExecuteBulkActionWithPageProviderAndNamedParams() {
         DocumentModel folder = RestServerInit.getFolder(1, session);
-        MultivaluedMap<String, String> queryParams = new MultivaluedMapImpl();
-        queryParams.add("note1", "Note 1");
-        queryParams.add("note2", "Note 2");
-        queryParams.add("parentIdVar", folder.getId());
+        Map<String, String> queryParams = Map.of( //
+                "note1", "Note 1", //
+                "note2", "Note 2", //
+                "parentIdVar", folder.getId());
         testExecuteBulkAction("search/pp/TEST_PP_PARAM", queryParams);
     }
 
     @Test
-    public void testExecuteBulkActionWithPageProviderAndWhereClause() throws Exception {
-        MultivaluedMap<String, String> queryParams = new MultivaluedMapImpl();
-        queryParams.add("parameter1", "Folder 0");
+    public void testExecuteBulkActionWithPageProviderAndWhereClause() {
+        Map<String, String> queryParams = Map.of("parameter1", "Folder 0");
         testExecuteBulkAction("search/pp/namedParamProviderWithWhereClause", queryParams);
     }
 
     @Test
-    public void testExecuteBulkActionWithPageProviderAndQuickFilter() throws Exception {
+    public void testExecuteBulkActionWithPageProviderAndQuickFilter() {
         DocumentModel folder = RestServerInit.getFolder(1, session);
-        MultivaluedMap<String, String> queryParams = new MultivaluedMapImpl();
-        queryParams.add("quickFilters", "testQF");
-        queryParams.add("parentIdVar", folder.getId());
+        Map<String, String> queryParams = Map.of( //
+                "quickFilters", "testQF", //
+                "parentIdVar", folder.getId());
         testExecuteBulkAction("search/pp/TEST_PP_QUICK_FILTER", queryParams);
     }
 
     @Test
-    public void testExecuteBulkActionWithSavedSearch() throws Exception {
+    public void testExecuteBulkActionWithSavedSearch() {
         assumeTrue("fulltext search not supported", coreFeature.getStorageConfiguration().supportsFulltextSearch());
 
         String savedSearchId = RestServerInit.getSavedSearchId(3, session);
-        MultivaluedMap<String, String> queryParams = new MultivaluedMapImpl();
-        testExecuteBulkAction("search/saved/" + savedSearchId, queryParams);
+        testExecuteBulkAction("search/saved/" + savedSearchId, Map.of());
     }
 
-    protected void testExecuteBulkAction(String searchEndpoint, MultivaluedMap<String, String> queryParams)
-            throws Exception {
+    protected void testExecuteBulkAction(String searchEndpoint, Map<String, String> queryParams) {
 
         executeBulkAction(searchEndpoint, queryParams);
 
-        try (CloseableClientResponse response = getResponse(RequestType.GET, searchEndpoint + "/execute",
-                queryParams)) {
-
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            List<JsonNode> noteNodes = getEntries(node);
-            for (JsonNode noteNode : noteNodes) {
-                assertEquals("bulk desc", noteNode.get("properties").get("dc:description").textValue());
-            }
-        }
+        httpClient.buildGetRequest(searchEndpoint + "/execute")
+                  .addQueryParameters(queryParams)
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      List<JsonNode> noteNodes = JsonNodeHelper.getEntries(node);
+                      for (JsonNode noteNode : noteNodes) {
+                          assertEquals("bulk desc", noteNode.get("properties").get("dc:description").textValue());
+                      }
+                  });
     }
 
-    protected BulkStatus executeBulkAction(String searchEndpoint, MultivaluedMap<String, String> queryParams)
-            throws IOException, InterruptedException {
-        String actionId = SetPropertiesAction.ACTION_NAME;
-        Map<String, String> params = Collections.singletonMap("dc:description", "bulk desc");
-        String jsonParams = new ObjectMapper().writeValueAsString(params);
+    protected BulkStatus executeBulkAction(String searchEndpoint, Map<String, String> queryParams) {
+        return httpClient.buildPostRequest(searchEndpoint + "/bulk/" + SetPropertiesAction.ACTION_NAME)
+                         .addQueryParameters(queryParams)
+                         .entity("{\"dc:description\":\"bulk desc\"}")
+                         .executeAndThen(new JsonNodeHandler(SC_ACCEPTED), ThrowableFunction.asFunction(node -> {
+                             String commandId = node.get("commandId").textValue();
 
-        try (CloseableClientResponse response = getResponse(RequestType.POST, searchEndpoint + "/bulk/" + actionId,
-                jsonParams, queryParams, null, null)) {
+                             assertTrue("Bulk action didn't finish", bulkService.await(Duration.ofSeconds(10)));
 
-            assertEquals(Response.Status.ACCEPTED.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            String commandId = node.get("commandId").textValue();
-
-            assertTrue("Bulk action didn't finish", bulkService.await(Duration.ofSeconds(10)));
-
-            BulkStatus status = bulkService.getStatus(commandId);
-            assertNotNull(status);
-            assertEquals(COMPLETED, status.getState());
-            return status;
-        }
+                             BulkStatus status = bulkService.getStatus(commandId);
+                             assertNotNull(status);
+                             assertEquals(COMPLETED, status.getState());
+                             return status;
+                         }));
     }
 
     @Test
-    public void testExecuteBulkWithAScroller() throws Exception {
-        MultivaluedMap<String, String> queryParams = new MultivaluedMapImpl();
-        queryParams.add("query", "SELECT * FROM Document WHERE ecm:isVersion = 0");
-        queryParams.add("scroll", "repository");
+    public void testExecuteBulkWithAScroller() {
+        Map<String, String> queryParams = Map.of( //
+                "query", "SELECT * FROM Document WHERE ecm:isVersion = 0", //
+                "scroll", "repository");
         testExecuteBulkAction("search", queryParams);
     }
 
     @Test
-    public void testExecuteBulkWithAQueryLimit() throws Exception {
-        MultivaluedMap<String, String> queryParams = new MultivaluedMapImpl();
-        queryParams.add("query", "SELECT * FROM Document WHERE ecm:isVersion = 0");
-        queryParams.add("queryLimit", "1");
+    public void testExecuteBulkWithAQueryLimit() {
+        Map<String, String> queryParams = Map.of( //
+                "query", "SELECT * FROM Document WHERE ecm:isVersion = 0", //
+                "queryLimit", "1");
         BulkStatus status = executeBulkAction("search", queryParams);
         assertEquals(1, status.getTotal());
         assertEquals(true, status.isQueryLimitReached());

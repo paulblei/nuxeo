@@ -19,25 +19,24 @@
 package org.nuxeo.ecm.restapi.test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-import java.io.IOException;
+import javax.inject.Inject;
 
-import javax.ws.rs.core.MultivaluedMap;
-import javax.ws.rs.core.Response;
-
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.nuxeo.ecm.core.io.marshallers.json.types.SchemaJsonWriter;
 import org.nuxeo.ecm.core.test.annotations.Granularity;
 import org.nuxeo.ecm.core.test.annotations.RepositoryConfig;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.sun.jersey.core.util.MultivaluedMapImpl;
 
 /**
  * @since 9.1
@@ -45,51 +44,54 @@ import com.sun.jersey.core.util.MultivaluedMapImpl;
 @RunWith(FeaturesRunner.class)
 @Features({ RestServerFeature.class })
 @RepositoryConfig(init = RestServerInit.class, cleanup = Granularity.METHOD)
-public class SchemaTest extends BaseTest {
+public class SchemaTest {
+
+    @Inject
+    protected RestServerFeature restServerFeature;
+
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.defaultClient(
+            () -> restServerFeature.getRestApiUrl());
 
     @Test
-    public void testFieldsWithConstraintsFetch() throws IOException {
+    public void testFieldsWithConstraintsFetch() {
         // Given the dublincore
 
         // When I call the schema Rest endpoint
-        MultivaluedMap<String, String> queryParams = new MultivaluedMapImpl();
-        queryParams.putSingle("fetch." + SchemaJsonWriter.ENTITY_TYPE, SchemaJsonWriter.FETCH_FIELDS);
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "/schema/dublincore", queryParams)) {
+        httpClient.buildGetRequest("/schema/dublincore")
+                  .addQueryParameter("fetch." + SchemaJsonWriter.ENTITY_TYPE, SchemaJsonWriter.FETCH_FIELDS)
+                  .executeAndConsume(new JsonNodeHandler(), node -> {
+                      // Then it returns the dublincore schema Json with constraints
+                      JsonNode fields = node.get("fields");
+                      assertNotNull(fields);
 
-            // Then it returns the dublincore schema Json with constraints
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+                      JsonNode creator = fields.get("creator");
+                      assertNotNull(creator);
 
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            JsonNode fields = node.get("fields");
-            assertNotNull(fields);
+                      JsonNode type = creator.get("type");
+                      assertNotNull(type);
+                      assertEquals("string", type.textValue());
 
-            JsonNode creator = fields.get("creator");
-            assertNotNull(creator);
+                      JsonNode constraints = creator.get("constraints");
+                      assertNotNull(constraints);
+                      assertTrue(constraints.isArray());
+                      assertFalse(constraints.isEmpty());
 
-            JsonNode type = creator.get("type");
-            assertNotNull(type);
-            assertEquals("string", type.textValue());
+                      JsonNode contributors = fields.get("contributors");
+                      assertNotNull(contributors);
 
-            JsonNode constraints = creator.get("constraints");
-            assertNotNull(constraints);
-            assertTrue(constraints.isArray());
-            assertTrue(constraints.size() > 0);
+                      type = contributors.get("type");
+                      assertNotNull(type);
+                      assertEquals("string[]", type.textValue());
 
-            JsonNode contributors = fields.get("contributors");
-            assertNotNull(contributors);
+                      constraints = contributors.get("constraints");
+                      assertNotNull(constraints);
+                      assertTrue(constraints.isArray());
 
-            type = contributors.get("type");
-            assertNotNull(type);
-            assertEquals("string[]", type.textValue());
-
-            constraints = contributors.get("constraints");
-            assertNotNull(constraints);
-            assertTrue(constraints.isArray());
-
-            JsonNode itemConstraints = contributors.get("itemConstraints");
-            assertNotNull(itemConstraints);
-            assertTrue(itemConstraints.isArray());
-            assertTrue(itemConstraints.size() > 0);
-        }
+                      JsonNode itemConstraints = contributors.get("itemConstraints");
+                      assertNotNull(itemConstraints);
+                      assertTrue(itemConstraints.isArray());
+                      assertFalse(itemConstraints.isEmpty());
+                  });
     }
 }

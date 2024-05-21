@@ -21,18 +21,16 @@ package org.nuxeo.ecm.restapi.test;
 
 import static org.apache.http.HttpStatus.SC_BAD_REQUEST;
 import static org.apache.http.HttpStatus.SC_CREATED;
-import static org.apache.http.HttpStatus.SC_OK;
 import static org.junit.Assert.assertEquals;
 import static org.nuxeo.ecm.core.api.security.SecurityConstants.READ_WRITE;
 
 import java.io.IOException;
-import java.util.Map;
 
 import javax.inject.Inject;
 import javax.validation.constraints.NotNull;
-import javax.ws.rs.core.Response.StatusType;
 
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.nuxeo.ecm.core.api.CoreSession;
@@ -44,14 +42,14 @@ import org.nuxeo.ecm.core.api.security.impl.ACPImpl;
 import org.nuxeo.ecm.core.schema.PropertyCharacteristicHandler;
 import org.nuxeo.ecm.core.test.annotations.Granularity;
 import org.nuxeo.ecm.core.test.annotations.RepositoryConfig;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.HttpStatusCodeHandler;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
 import org.nuxeo.runtime.test.runner.TransactionalFeature;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /**
@@ -63,9 +61,12 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 @Features(RestServerFeature.class)
 @Deploy("org.nuxeo.ecm.core.api.tests:OSGI-INF/test-documentmodel-secured-types-contrib.xml")
 @RepositoryConfig(cleanup = Granularity.METHOD, init = RestServerInit.class)
-public class DocumentSecuredPropertyTest extends BaseTest {
+public class DocumentSecuredPropertyTest {
 
     public static final String USER_1 = "user1";
+
+    @Inject
+    protected RestServerFeature restServerFeature;
 
     @Inject
     protected TransactionalFeature txFeature;
@@ -73,10 +74,12 @@ public class DocumentSecuredPropertyTest extends BaseTest {
     @Inject
     protected CoreSession session;
 
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.defaultJsonClient(
+            () -> restServerFeature.getRestApiUrl());
+
     @Before
-    @Override
     public void doBefore() {
-        super.doBefore();
         ACE ace = ACE.builder(USER_1, READ_WRITE).creator(session.getPrincipal().getName()).isGranted(true).build();
         ACP acp = new ACPImpl();
         acp.addACE(ACL.LOCAL_ACL, ace);
@@ -87,73 +90,66 @@ public class DocumentSecuredPropertyTest extends BaseTest {
 
     @Test
     public void testAdministratorCanCreate() {
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "path/folder_2",
-                instantiateDocumentBody())) {
-            StatusType status = response.getStatusInfo();
-            assertEquals("HTTP Reason: " + status.getReasonPhrase(), SC_CREATED, status.getStatusCode());
-        }
+        httpClient.buildPostRequest("/path/folder_2")
+                  .entity(instantiateDocumentBody())
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_CREATED, status.intValue()));
     }
 
     @Test
-    public void testUserCanNotCreate() throws IOException {
-        this.service = getServiceFor(USER_1, USER_1);
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "path/folder_2",
-                instantiateDocumentBody())) {
-            StatusType status = response.getStatusInfo();
-            assertEquals("HTTP Reason: " + status.getReasonPhrase(), SC_BAD_REQUEST, status.getStatusCode());
-            // not necessary to close stream, it will be done by response close
-            JsonNode root = mapper.readTree(response.getEntityInputStream());
-            assertEquals("Cannot set the value of property: scalar since it is readonly", getErrorMessage(root));
-        }
+    public void testUserCanNotCreate() {
+        httpClient.buildPostRequest("/path/folder_2")
+                  .credentials(USER_1, USER_1)
+                  .entity(instantiateDocumentBody())
+                  .executeAndConsume(new JsonNodeHandler(SC_BAD_REQUEST),
+                          node -> assertEquals("Cannot set the value of property: scalar since it is readonly",
+                                  JsonNodeHelper.getErrorMessage(node)));
     }
 
     @Test
     public void testUserCanUseRepositoryUsingEmptyWithDefaultAdapter() throws IOException {
-        this.service = getServiceFor(USER_1, USER_1);
-        String docModel;
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "path/folder_2/@emptyWithDefault",
-                multiOf("type", "Secured", "properties", "*"))) {
-            StatusType status = response.getStatusInfo();
-            assertEquals("HTTP Reason: " + status.getReasonPhrase(), SC_OK, status.getStatusCode());
+        var root = httpClient.buildGetRequest("/path/folder_2/@emptyWithDefault")
+                             .credentials(USER_1, USER_1)
+                             .addQueryParameter("type", "Secured")
+                             .addQueryParameter("properties", "*")
+                             .execute(new JSONDocumentNodeHandler());
 
-            // edit response for next call
-            var root = new JSONDocumentNode(response.getEntityInputStream());
-            root.node.remove("title");
-            root.node.put("name", "file");
-            var unsecureComplex = (ObjectNode) root.getPropertyAsJsonNode("secured:unsecureComplex");
-            unsecureComplex.put("scalar2", "I can");
-            root.setPropertyValue("secured:unsecureComplex", unsecureComplex);
-            docModel = root.asJson();
-        }
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "path/folder_2", docModel)) {
-            StatusType status = response.getStatusInfo();
-            assertEquals("HTTP Reason: " + status.getReasonPhrase(), SC_CREATED, status.getStatusCode());
-        }
         // edit response for next call
-        var root = new JSONDocumentNode(docModel);
+        root.node.remove("title");
+        root.node.put("name", "file");
         var unsecureComplex = (ObjectNode) root.getPropertyAsJsonNode("secured:unsecureComplex");
+        unsecureComplex.put("scalar2", "I can");
+        root.setPropertyValue("secured:unsecureComplex", unsecureComplex);
+
+        var statusCodeHandler = new HttpStatusCodeHandler();
+        httpClient.buildPostRequest("/path/folder_2")
+                  .credentials(USER_1, USER_1)
+                  .entity(root.asJson())
+                  .executeAndConsume(statusCodeHandler, status -> assertEquals(SC_CREATED, status.intValue()));
+
+        // edit response for next call
         root.node.with("properties").removeAll();
         unsecureComplex.put("scalar2", "I still can!");
         root.setPropertyValue("secured:unsecureComplex", unsecureComplex);
-        docModel = root.asJson();
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "path/folder_2", docModel)) {
-            StatusType status = response.getStatusInfo();
-            assertEquals("HTTP Reason: " + status.getReasonPhrase(), SC_CREATED, status.getStatusCode());
-        }
+
+        httpClient.buildPostRequest("/path/folder_2")
+                  .credentials(USER_1, USER_1)
+                  .entity(root.asJson())
+                  .executeAndConsume(statusCodeHandler, status -> assertEquals(SC_CREATED, status.intValue()));
     }
 
     @NotNull
     protected String instantiateDocumentBody() {
-        try {
-            return mapper.writeValueAsString( //
-                    Map.of("entity-type", "document", //
-                            "name", "secured_document", //
-                            "type", "Secured", //
-                            "properties", Map.of("secured:scalar", "I'm secured !") //
-                    ));
-        } catch (JsonProcessingException e) {
-            throw new AssertionError("Unable to serialize document body", e);
-        }
+        return """
+                {
+                  "entity-type": "document",
+                  "name": "secured_document",
+                  "type": "Secured",
+                  "properties": {
+                    "secured:scalar": "I'm secured !"
+                  }
+                }
+                """;
     }
 
 }

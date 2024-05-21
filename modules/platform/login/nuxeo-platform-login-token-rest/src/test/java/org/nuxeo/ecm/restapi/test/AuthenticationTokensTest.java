@@ -19,32 +19,31 @@
 
 package org.nuxeo.ecm.restapi.test;
 
+import static org.apache.http.HttpStatus.SC_CREATED;
+import static org.apache.http.HttpStatus.SC_NO_CONTENT;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
 
 import javax.inject.Inject;
-import javax.ws.rs.core.MultivaluedMap;
-import javax.ws.rs.core.Response;
 
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.nuxeo.ecm.core.test.CoreFeature;
 import org.nuxeo.ecm.tokenauth.service.TokenAuthenticationService;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.HttpStatusCodeHandler;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
+import org.nuxeo.http.test.handler.StringHandler;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
-import org.nuxeo.runtime.transaction.TransactionHelper;
+import org.nuxeo.runtime.test.runner.TransactionalFeature;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.sun.jersey.core.util.MultivaluedMapImpl;
 
 /**
  * @since 8.3
@@ -53,7 +52,7 @@ import com.sun.jersey.core.util.MultivaluedMapImpl;
 @Features({ RestServerFeature.class })
 @Deploy("org.nuxeo.ecm.platform.login.token")
 @Deploy("org.nuxeo.ecm.platform.restapi.server.login.tokenauth")
-public class AuthenticationTokensTest extends BaseTest {
+public class AuthenticationTokensTest {
 
     @Inject
     TokenAuthenticationService tokenAuthenticationService;
@@ -61,21 +60,29 @@ public class AuthenticationTokensTest extends BaseTest {
     @Inject
     protected CoreFeature coreFeature;
 
+    @Inject
+    protected RestServerFeature restServerFeature;
+
+    @Inject
+    protected TransactionalFeature transactionalFeature;
+
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.defaultJsonClient(
+            () -> restServerFeature.getRestApiUrl());
+
     @Test
-    public void itCanQueryTokens() throws Exception {
+    public void itCanQueryTokens() {
         // Check empty token list
-        try (CloseableClientResponse response = getResponse(RequestType.GET, "/token")) {
-            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertEquals(0, getEntries("tokens", node).size());
-        }
+        httpClient.buildGetRequest("/token")
+                  .executeAndConsume(new JsonNodeHandler(),
+                          node -> assertTrue(JsonNodeHelper.getEntries("tokens", node).isEmpty()));
 
         // acquire some tokens
         String token1 = tokenAuthenticationService.acquireToken("Administrator", "app1", "device1", "", "rw");
         coreFeature.getStorageConfiguration().maybeSleepToNextSecond();
         String token2 = tokenAuthenticationService.acquireToken("Administrator", "app2", "device2", "", "rw");
 
-        nextTransaction();
+        transactionalFeature.nextTransaction();
 
         // query tokens for current user
         List<JsonNode> tokens = getTokens();
@@ -90,15 +97,15 @@ public class AuthenticationTokensTest extends BaseTest {
     }
 
     @Test
-    public void itCanRevokeTokens() throws Exception {
+    public void itCanRevokeTokens() {
         // acquire a token
         String token1 = tokenAuthenticationService.acquireToken("Administrator", "app1", "device1", "", "rw");
-        nextTransaction();
+        transactionalFeature.nextTransaction();
 
         // delete it
-        try (CloseableClientResponse response = getResponse(RequestType.DELETE, "/token/" + token1)) {
-            assertEquals(Response.Status.NO_CONTENT.getStatusCode(), response.getStatus());
-        }
+        httpClient.buildDeleteRequest("/token/" + token1)
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_NO_CONTENT, status.intValue()));
 
         // check no tokens
         List<JsonNode> tokens = getTokens();
@@ -106,17 +113,13 @@ public class AuthenticationTokensTest extends BaseTest {
     }
 
     @Test
-    public void itCanCreateTokens() throws Exception {
+    public void itCanCreateTokens() {
         // acquire a token
-        MultivaluedMap<String, String> params = new MultivaluedMapImpl();
-        params.put("application", Collections.singletonList("app"));
-        params.put("deviceId", Collections.singletonList("device"));
-        params.put("permission", Collections.singletonList("rw"));
-        try (CloseableClientResponse response = getResponse(RequestType.POST, "/token", null, params, null, null)) {
-            assertEquals(Response.Status.CREATED.getStatusCode(), response.getStatus());
-            String tokenId = response.getEntity(String.class);
-            assertFalse(tokenId.isEmpty());
-        }
+        httpClient.buildPostRequest("/token")
+                  .addQueryParameter("application", "app")
+                  .addQueryParameter("deviceId", "device")
+                  .addQueryParameter("permission", "rw")
+                  .executeAndConsume(new StringHandler(SC_CREATED), tokenId -> assertFalse(tokenId.isEmpty()));
 
         // check tokens for current user
         List<JsonNode> tokens = getTokens();
@@ -129,32 +132,15 @@ public class AuthenticationTokensTest extends BaseTest {
         assertFalse(token.get("username").textValue().isEmpty());
     }
 
-    private List<JsonNode> getTokens() throws IOException {
+    private List<JsonNode> getTokens() {
         return getTokens(null);
     }
 
-    private List<JsonNode> getTokens(String application) throws IOException {
-        MultivaluedMap<String, String> params = new MultivaluedMapImpl();
+    private List<JsonNode> getTokens(String application) {
+        var requestBuilder = httpClient.buildGetRequest("/token");
         if (application != null) {
-            params.put("application", Collections.singletonList(application));
+            requestBuilder.addQueryParameter("application", application);
         }
-        JsonNode node = getResponseAsJson(RequestType.GET, "/token", params);
-        return getEntries("tokens", node);
-    }
-
-    private List<JsonNode> getEntries(String entityType, JsonNode node) {
-        assertEquals(entityType, node.get("entity-type").asText());
-        assertTrue(node.get("entries").isArray());
-        List<JsonNode> result = new ArrayList<>();
-        Iterator<JsonNode> elements = node.get("entries").elements();
-        while (elements.hasNext()) {
-            result.add(elements.next());
-        }
-        return result;
-    }
-
-    private void nextTransaction() {
-        TransactionHelper.commitOrRollbackTransaction();
-        TransactionHelper.startTransaction();
+        return requestBuilder.executeAndThen(new JsonNodeHandler(), node -> JsonNodeHelper.getEntries("tokens", node));
     }
 }

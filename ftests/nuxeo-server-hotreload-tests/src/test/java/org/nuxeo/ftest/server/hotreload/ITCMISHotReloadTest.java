@@ -18,19 +18,18 @@
  */
 package org.nuxeo.ftest.server.hotreload;
 
+import static org.apache.http.HttpStatus.SC_CREATED;
 import static org.junit.Assert.assertEquals;
 import static org.nuxeo.functionaltests.AbstractTest.NUXEO_URL;
 
-import javax.ws.rs.core.MultivaluedMap;
+import java.util.HashMap;
+import java.util.Map;
 
 import org.junit.Rule;
 import org.junit.Test;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
-import org.nuxeo.jaxrs.test.HttpClientTestRule;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.sun.jersey.core.util.MultivaluedMapImpl;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.HttpStatusCodeHandler;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 
 /**
  * Tests hot reload from CMIS.
@@ -43,34 +42,29 @@ public class ITCMISHotReloadTest {
     public final HotReloadTestRule hotReloadRule = new HotReloadTestRule();
 
     @Rule
-    public final HttpClientTestRule httpClientRule = new HttpClientTestRule.Builder().url(NUXEO_URL + "/json/cmis")
-                                                                                     .adminCredentials()
-                                                                                     .build();
-
-    public final ObjectMapper mapper = new ObjectMapper();
+    public final HttpClientTestRule httpClient = HttpClientTestRule.defaultClient(() -> NUXEO_URL + "/json/cmis");
 
     @Test
-    public void testHotReloadDocumentType() throws Exception {
+    public void testHotReloadDocumentType() {
         // get root id
-        String rootId;
-        try (CloseableClientResponse response = httpClientRule.get("")) {
-            JsonNode root = mapper.readTree(response.getEntityInputStream());
-            rootId = root.get("default").get("rootFolderId").asText();
-        }
+        String rootId = httpClient.buildGetRequest("")
+                                  .executeAndThen(new JsonNodeHandler(),
+                                          node -> node.get("default").get("rootFolderId").asText());
 
         // test create a document
-        MultivaluedMap<String, String> formData = new MultivaluedMapImpl();
-        formData.add("cmisaction", "createDocument");
-        formData.add("propertyId[0]", "cmis:objectTypeId");
-        formData.add("propertyValue[0]", "HotReload");
-        formData.add("propertyId[1]", "cmis:name");
-        formData.add("propertyValue[1]", "hot reload");
-        formData.add("propertyId[2]", "hr:content");
-        formData.add("propertyValue[2]", "some content");
-        formData.add("succinct", "true");
-        try (CloseableClientResponse response = httpClientRule.post("default/root?objectId=" + rootId, formData)) {
-            assertEquals(201, response.getStatus());
-        }
+        Map<String, String> formData = new HashMap<>();
+        formData.put("cmisaction", "createDocument");
+        formData.put("propertyId[0]", "cmis:objectTypeId");
+        formData.put("propertyValue[0]", "HotReload");
+        formData.put("propertyId[1]", "cmis:name");
+        formData.put("propertyValue[1]", "hot reload");
+        formData.put("propertyId[2]", "hr:content");
+        formData.put("propertyValue[2]", "some content");
+        formData.put("succinct", "true");
+        httpClient.buildPostRequest("default/root?objectId=" + rootId)
+                  .entity(formData)
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(SC_CREATED, status.intValue()));
     }
 
 }

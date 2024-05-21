@@ -24,7 +24,7 @@ import javax.servlet.http.HttpServletResponse;
 
 import org.junit.Test;
 import org.nuxeo.ecm.restapi.test.ManagementBaseTest;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.handler.HttpStatusCodeHandler;
 import org.nuxeo.runtime.test.runner.WithFrameworkProperty;
 
 /**
@@ -34,17 +34,17 @@ public class TestManagementHttpPortFilter extends ManagementBaseTest {
 
     @Test
     public void testDefaultHttpPortConfiguration() {
-        try (CloseableClientResponse response = httpClientRule.get("/management/distribution")) {
-            assertEquals(HttpServletResponse.SC_OK, response.getStatus());
-        }
+        httpClient.buildGetRequest("/management/distribution")
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(HttpServletResponse.SC_OK, status.intValue()));
     }
 
     @Test
     @WithFrameworkProperty(name = ManagementObject.MANAGEMENT_API_HTTP_PORT_PROPERTY, value = "10")
     public void testCustomHttpPortConfiguration() {
-        try (CloseableClientResponse response = httpClientRule.get("/management/distribution")) {
-            assertEquals(HttpServletResponse.SC_NOT_FOUND, response.getStatus());
-        }
+        httpClient.buildGetRequest("/management/distribution")
+                  .executeAndConsume(new HttpStatusCodeHandler(),
+                          status -> assertEquals(HttpServletResponse.SC_NOT_FOUND, status.intValue()));
     }
 
 }

@@ -19,34 +19,34 @@
 
 package org.nuxeo.ecm.restapi.test;
 
+import static org.apache.http.HttpStatus.SC_ACCEPTED;
+import static org.apache.http.HttpStatus.SC_OK;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-import java.io.IOException;
 import java.io.Serializable;
+import java.util.Map;
 
-import javax.ws.rs.core.MultivaluedMap;
+import javax.inject.Inject;
 
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.nuxeo.ecm.core.api.Blob;
 import org.nuxeo.ecm.core.api.Blobs;
+import org.nuxeo.ecm.core.api.CoreSession;
 import org.nuxeo.ecm.core.api.DocumentModel;
 import org.nuxeo.ecm.core.event.EventService;
 import org.nuxeo.ecm.core.test.annotations.Granularity;
 import org.nuxeo.ecm.core.test.annotations.RepositoryConfig;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.HttpClientTestRule;
+import org.nuxeo.http.test.handler.HttpStatusCodeHandler;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
 import org.nuxeo.runtime.transaction.TransactionHelper;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.google.inject.Inject;
-import com.sun.jersey.api.client.ClientResponse;
-import com.sun.jersey.api.client.WebResource;
-import com.sun.jersey.core.util.MultivaluedMapImpl;
 
 /**
  * @since 7.3
@@ -56,10 +56,20 @@ import com.sun.jersey.core.util.MultivaluedMapImpl;
 @RepositoryConfig(cleanup = Granularity.METHOD, init = RestServerInit.class)
 @Deploy("org.nuxeo.ecm.core.cache")
 @Deploy("org.nuxeo.ecm.platform.convert")
-public class ConverterTest extends BaseTest {
+public class ConverterTest {
+
+    @Inject
+    protected CoreSession session;
 
     @Inject
     protected EventService eventService;
+
+    @Inject
+    protected RestServerFeature restServerFeature;
+
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.defaultClient(
+            () -> restServerFeature.getRestApiUrl());
 
     @Test
     public void shouldConvertBlobUsingNamedConverter() {
@@ -69,16 +79,14 @@ public class ConverterTest extends BaseTest {
     protected void doSynchronousConversion(String paramName, String paramValue, boolean convertDocument) {
         DocumentModel doc = createDummyDocument();
 
-        MultivaluedMap<String, String> queryParams = new MultivaluedMapImpl();
-        queryParams.putSingle(paramName, paramValue);
-        String path = "path" + doc.getPathAsString() + "/";
+        String path = "/path" + doc.getPathAsString() + "/";
         if (!convertDocument) {
             path += "@blob/file:content/";
         }
         path += "@convert";
-        try (CloseableClientResponse response = getResponse(RequestType.GET, path, queryParams)) {
-            assertEquals(200, response.getStatus());
-        }
+        httpClient.buildPostRequest(path)
+                  .entity(Map.of(paramName, paramValue))
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(SC_OK, status.intValue()));
     }
 
     protected DocumentModel createDummyDocument() {
@@ -107,77 +115,68 @@ public class ConverterTest extends BaseTest {
     }
 
     @Test
-    public void shouldScheduleAsynchronousConversionUsingNamedConverter() throws IOException {
+    public void shouldScheduleAsynchronousConversionUsingNamedConverter() {
         doAsynchronousConversion("converter", "any2pdf");
     }
 
-    public void doAsynchronousConversion(String paramName, String paramValue) throws IOException {
+    public void doAsynchronousConversion(String paramName, String paramValue) {
         DocumentModel doc = createDummyDocument();
 
-        String pollingURL;
-        String computedResultURL;
+        String pollingURLFormat = "/conversions/%s/poll";
+        String resultURLFormat = "/conversions/%s/result";
+        String conversionId = httpClient.buildPostRequest("path" + doc.getPathAsString() + "/@convert")
+                                        .entity(Map.of(paramName, paramValue, "async", "true"))
+                                        .executeAndThen(new JsonNodeHandler(SC_ACCEPTED), node -> {
+                                            assertNotNull(node);
+                                            assertEquals("conversionScheduled", node.get("entity-type").textValue());
+                                            String id = node.get("conversionId").textValue();
+                                            assertNotNull(id);
+                                            String pollingURL = node.get("pollingURL").textValue();
+                                            String computedPollingURL = String.format(
+                                                    restServerFeature.getRestApiUrl() + pollingURLFormat, id);
+                                            assertEquals(computedPollingURL, pollingURL);
+                                            String resultURL = node.get("resultURL").textValue();
+                                            String computedResultURL = String.format(
+                                                    restServerFeature.getRestApiUrl() + resultURLFormat, id);
+                                            assertEquals(computedResultURL, resultURL);
+                                            return id;
+                                        });
 
-        MultivaluedMap<String, String> formData = new MultivaluedMapImpl();
-        formData.add(paramName, paramValue);
-        formData.add("async", "true");
-        WebResource wr = service.path("path" + doc.getPathAsString() + "/@convert");
-        try (CloseableClientResponse response = CloseableClientResponse.of(
-                wr.getRequestBuilder().post(ClientResponse.class, formData))) {
-            assertEquals(202, response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            assertNotNull(node);
-            assertEquals("conversionScheduled", node.get("entity-type").textValue());
-            String id = node.get("conversionId").textValue();
-            assertNotNull(id);
-            pollingURL = node.get("pollingURL").textValue();
-            String computedPollingURL = String.format(getRestApiUrl() + "conversions/%s/poll", id);
-            assertEquals(computedPollingURL, pollingURL);
-            String resultURL = node.get("resultURL").textValue();
-            computedResultURL = String.format(getRestApiUrl() + "conversions/%s/result", id);
-            assertEquals(computedResultURL, resultURL);
-        }
+        String pollingURL = String.format(pollingURLFormat, conversionId);
+        String computedResultURL = String.format(resultURLFormat, conversionId);
 
-        wr = client.resource(pollingURL);
-        try (CloseableClientResponse response = CloseableClientResponse.of(wr.get(ClientResponse.class))) {
-            assertEquals(200, response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
+        httpClient.buildGetRequest(pollingURL).executeAndConsume(new JsonNodeHandler(), node -> {
             assertNotNull(node);
             assertEquals("conversionStatus", node.get("entity-type").textValue());
             String id = node.get("conversionId").textValue();
             assertNotNull(id);
             String resultURL = node.get("resultURL").textValue();
-            assertEquals(computedResultURL, resultURL);
+            assertEquals(restServerFeature.getRestApiUrl() + computedResultURL, resultURL);
             String status = node.get("status").textValue();
             assertTrue(status.equals("running") || status.equals("completed"));
-        }
+        });
 
         // wait for the conversion to finish
         eventService.waitForAsyncCompletion();
 
         // polling URL should redirect to the result URL when done
-        String resultURL;
-        wr = client.resource(pollingURL);
-        try (CloseableClientResponse response = CloseableClientResponse.of(wr.get(ClientResponse.class))) {
-            assertEquals(200, response.getStatus());
-            JsonNode node = mapper.readTree(response.getEntityInputStream());
-            resultURL = node.get("resultURL").textValue();
-            assertEquals(computedResultURL, resultURL);
-        }
+        httpClient.buildGetRequest(pollingURL).executeAndConsume(new JsonNodeHandler(), node -> {
+            String url = node.get("resultURL").textValue();
+            assertEquals(restServerFeature.getRestApiUrl() + computedResultURL, url);
+        });
 
         // retrieve the converted blob
-        wr = client.resource(resultURL);
-        try (CloseableClientResponse response = CloseableClientResponse.of(wr.get(ClientResponse.class))) {
-            assertEquals(200, response.getStatus());
-        }
+        httpClient.buildGetRequest(computedResultURL)
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(SC_OK, status.intValue()));
     }
 
     @Test
-    public void shouldScheduleAsynchronousConversionUsingMimeType() throws IOException {
+    public void shouldScheduleAsynchronousConversionUsingMimeType() {
         doAsynchronousConversion("type", "application/pdf");
     }
 
     @Test
-    public void shouldScheduleAsynchronousConversionUsingFormat() throws IOException {
+    public void shouldScheduleAsynchronousConversionUsingFormat() {
         doAsynchronousConversion("format", "pdf");
     }
 
@@ -185,13 +184,9 @@ public class ConverterTest extends BaseTest {
     public void shouldAllowSynchronousConversionUsingPOST() {
         DocumentModel doc = createDummyDocument();
 
-        MultivaluedMap<String, String> formData = new MultivaluedMapImpl();
-        formData.add("converter", "any2pdf");
-        WebResource wr = service.path("path" + doc.getPathAsString() + "/@convert");
-        try (CloseableClientResponse response = CloseableClientResponse.of(
-                wr.getRequestBuilder().post(ClientResponse.class, formData))) {
-            assertEquals(200, response.getStatus());
-        }
+        httpClient.buildPostRequest("/path" + doc.getPathAsString() + "/@convert")
+                  .entity(Map.of("converter", "any2pdf"))
+                  .executeAndConsume(new HttpStatusCodeHandler(), status -> assertEquals(SC_OK, status.intValue()));
     }
 
 }

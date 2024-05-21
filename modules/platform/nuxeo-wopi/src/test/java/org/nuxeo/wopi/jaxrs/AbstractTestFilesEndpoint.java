@@ -40,6 +40,7 @@ import javax.inject.Inject;
 
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.runner.RunWith;
 import org.mockito.Mockito;
 import org.nuxeo.common.Environment;
@@ -55,8 +56,8 @@ import org.nuxeo.ecm.core.test.CoreFeature;
 import org.nuxeo.ecm.jwt.JWTService;
 import org.nuxeo.ecm.platform.usermanager.UserManager;
 import org.nuxeo.ecm.webengine.test.WebEngineFeature;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
-import org.nuxeo.jaxrs.test.JerseyClientHelper;
+import org.nuxeo.http.test.CloseableHttpResponse;
+import org.nuxeo.http.test.HttpClientTestRule;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
@@ -68,9 +69,6 @@ import org.nuxeo.wopi.WOPIDiscoveryFeature;
 import org.nuxeo.wopi.WOPIFeature;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.sun.jersey.api.client.Client;
-import com.sun.jersey.api.client.ClientResponse;
-import com.sun.jersey.api.client.WebResource;
 
 /**
  * @since 2021.40
@@ -86,6 +84,8 @@ public abstract class AbstractTestFilesEndpoint {
     public static final String WOPI_FILES = "site/wopi/files";
 
     public static final String CONTENTS_PATH = "contents";
+
+    protected static final ObjectMapper MAPPER = new ObjectMapper();
 
     @Inject
     protected UserManager userManager;
@@ -105,7 +105,11 @@ public abstract class AbstractTestFilesEndpoint {
     @Inject
     protected ServletContainerFeature servletContainerFeature;
 
-    protected Client client;
+    @Rule
+    public final HttpClientTestRule httpClient = HttpClientTestRule.builder()
+                                                                   .url(() -> servletContainerFeature.getHttpUrl() + "/"
+                                                                           + WOPI_FILES)
+                                                                   .build();
 
     protected String joeToken;
 
@@ -137,12 +141,8 @@ public abstract class AbstractTestFilesEndpoint {
 
     protected Blob expectedAttachmentBlob;
 
-    ObjectMapper mapper;
-
     @Before
     public void setUp() throws IOException {
-        mapper = new ObjectMapper();
-
         createUsers();
 
         createDocuments();
@@ -150,7 +150,6 @@ public abstract class AbstractTestFilesEndpoint {
         // initialize REST API clients
         joeToken = jwtService.newBuilder().withClaim(CLAIM_SUBJECT, "joe").build();
         johnToken = jwtService.newBuilder().withClaim(CLAIM_SUBJECT, "john").build();
-        client = JerseyClientHelper.clientBuilder().build();
 
         // make sure everything is committed
         transactionalFeature.nextTransaction();
@@ -237,38 +236,34 @@ public abstract class AbstractTestFilesEndpoint {
     @After
     public void tearDown() {
         Stream.of("john", "joe").forEach(userManager::deleteUser);
-        client.destroy();
     }
 
-    protected CloseableClientResponse get(String token, String... path) {
+    protected CloseableHttpResponse get(String token, String... path) {
         return get(token, null, path);
     }
 
-    protected CloseableClientResponse get(String token, Map<String, String> headers, String... path) {
-        WebResource wr = client.resource(getBaseURL() + WOPI_FILES)
-                               .path(String.join("/", path))
-                               .queryParam(ACCESS_TOKEN_PARAMETER, token);
-        WebResource.Builder builder = wr.getRequestBuilder();
-        if (headers != null) {
-            headers.forEach(builder::header);
-        }
-        return CloseableClientResponse.of(builder.get(ClientResponse.class));
+    protected CloseableHttpResponse get(String token, Map<String, String> headers, String... path) {
+        return request(httpClient.buildGetRequest(String.join("/", path)), token, null, headers);
     }
 
-    protected CloseableClientResponse post(String token, Map<String, String> headers, String... path) {
+    protected CloseableHttpResponse post(String token, Map<String, String> headers, String... path) {
         return post(token, null, headers, path);
     }
 
-    protected CloseableClientResponse post(String token, String data, Map<String, String> headers, String... path) {
-        WebResource wr = client.resource(getBaseURL() + WOPI_FILES)
-                               .path(String.join("/", path))
-                               .queryParam(ACCESS_TOKEN_PARAMETER, token);
-        WebResource.Builder builder = wr.getRequestBuilder();
+    protected CloseableHttpResponse post(String token, String data, Map<String, String> headers, String... path) {
+        return request(httpClient.buildPostRequest(String.join("/", path)), token, data, headers);
+    }
+
+    protected CloseableHttpResponse request(HttpClientTestRule.RequestBuilder builder, String token, String data,
+            Map<String, String> headers) {
+        builder.addQueryParameter(ACCESS_TOKEN_PARAMETER, token);
         if (headers != null) {
-            headers.forEach(builder::header);
+            builder.addHeaders(headers);
         }
-        return CloseableClientResponse.of(
-                data != null ? builder.post(ClientResponse.class, data) : builder.post(ClientResponse.class));
+        if (data != null) {
+            builder.entity(data);
+        }
+        return builder.execute();
     }
 
 }

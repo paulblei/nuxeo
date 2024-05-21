@@ -18,19 +18,14 @@
  */
 package org.nuxeo.ecm.restapi.server.jaxrs.management;
 
-import static javax.servlet.http.HttpServletResponse.SC_OK;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import java.io.IOException;
-
 import org.junit.Test;
 import org.nuxeo.ecm.restapi.test.ManagementBaseTest;
-import org.nuxeo.jaxrs.test.CloseableClientResponse;
+import org.nuxeo.http.test.handler.JsonNodeHandler;
 import org.nuxeo.runtime.test.runner.WithFrameworkProperty;
-
-import com.fasterxml.jackson.databind.JsonNode;
 
 /**
  * @since 2021.35
@@ -39,35 +34,26 @@ import com.fasterxml.jackson.databind.JsonNode;
 public class TestStreamObject extends ManagementBaseTest {
 
     @Test
-    public void testListStreams() throws IOException {
-        try (CloseableClientResponse response = httpClientRule.get("/management/stream/streams")) {
-            assertEquals(SC_OK, response.getStatus());
-            JsonNode result = mapper.readTree(response.getEntityInputStream());
+    public void testListStreams() {
+        httpClient.buildGetRequest("/management/stream/streams").executeAndConsume(new JsonNodeHandler(), result -> {
             assertTrue(result.isArray());
             assertFalse(result.isEmpty());
             assertEquals("avro", result.get(0).get("codec").asText());
-        }
+        });
     }
 
     @Test
-    public void testStreamIntrospection() throws IOException {
-        try (CloseableClientResponse response = httpClientRule.get("/management/stream")) {
-            assertEquals(SC_OK, response.getStatus());
-            JsonNode result = mapper.readTree(response.getEntityInputStream());
-            assertTrue(result.isObject());
-        }
+    public void testStreamIntrospection() {
+        httpClient.buildGetRequest("/management/stream")
+                  .executeAndConsume(new JsonNodeHandler(), result -> assertTrue(result.isObject()));
     }
 
-
     @Test
-    public void testScale() throws IOException {
-        try (CloseableClientResponse response = httpClientRule.get("/management/stream/scale")) {
-            assertEquals(SC_OK, response.getStatus());
-            JsonNode result = mapper.readTree(response.getEntityInputStream());
+    public void testScale() {
+        httpClient.buildGetRequest("/management/stream/scale").executeAndConsume(new JsonNodeHandler(), result -> {
             assertTrue(result.isObject());
             assertTrue(result.at("/scale").isObject());
-        }
+        });
     }
-
 
 }
