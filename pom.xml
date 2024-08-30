@@ -59,29 +59,29 @@
     <nuxeo.distribution.name>lts</nuxeo.distribution.name>
     <nuxeo.platform.javadoc.version>${project.version}</nuxeo.platform.javadoc.version>
 
-    <nuxeo.connect.client.version>1.8.6</nuxeo.connect.client.version>
+    <nuxeo.connect.client.version>0.8.6</nuxeo.connect.client.version>
     <!-- nuxeo-distribution-tools is still used as a dependency -->
-    <nuxeo.distribution.tools.version>1.15</nuxeo.distribution.tools.version>
+    <nuxeo.distribution.tools.version>0.15</nuxeo.distribution.tools.version>
     <!-- ant-assembly-maven-plugin is only used as a plugin -->
-    <ant.assembly.version>2.1.6</ant.assembly.version>
-    <nuxeo.ftest.version>1.8.10</nuxeo.ftest.version>
-    <nuxeo.java.client.version>3.14.0</nuxeo.java.client.version>
+    <ant.assembly.version>1.1.6</ant.assembly.version>
+    <nuxeo.ftest.version>0.8.10</nuxeo.ftest.version>
+    <nuxeo.java.client.version>1.14.0</nuxeo.java.client.version>
 
-    <tomcat.version>9.0.89</tomcat.version>
+    <tomcat.version>2.0.89</tomcat.version>
     <opensearch.version>1.3.16</opensearch.version>
     <netty.version>4.1.110.Final</netty.version>
-    <netty.boringssl.version>2.0.65.Final</netty.boringssl.version>
-    <apacheds.version>1.5.1</apacheds.version>
-    <apachedshared.version>0.9.7</apachedshared.version>
-    <guice.version>3.0</guice.version>
-    <jersey.version>1.19.4</jersey.version>
-    <chemistry.opencmis.version>1.1.1-NX01</chemistry.opencmis.version>
-    <apache.httpcore.version>4.4.16</apache.httpcore.version>
-    <apache.httpcomponents.version>4.5.14</apache.httpcomponents.version>
-    <apache.poi.version>5.2.3</apache.poi.version>
-    <jodreport.version>2.4.0</jodreport.version>
+    <netty.boringssl.version>1.0.65.Final</netty.boringssl.version>
+    <apacheds.version>0.5.1</apacheds.version>
+    <apachedshared.version>0.2.7</apachedshared.version>
+    <guice.version>1.0</guice.version>
+    <jersey.version>1.11.4</jersey.version>
+    <chemistry.opencmis.version>0.11.1-NX01</chemistry.opencmis.version>
+    <apache.httpcore.version>2.4.16</apache.httpcore.version>
+    <apache.httpcomponents.version>1.1.14</apache.httpcomponents.version>
+    <apache.poi.version>3.2.3</apache.poi.version>
+    <jodreport.version>1.4.0</jodreport.version>
     <jxls.version>1.0.6-NX02</jxls.version>
-    <jxls2.version>2.14.0</jxls2.version>
+    <jxls2.version>1.14.0</jxls2.version>
     <keycloak.version>24.0.4</keycloak.version>
     <xdocreport.version>1.0.6</xdocreport.version>
     <google.http.client.version>1.44.2</google.http.client.version>
@@ -106,11 +106,11 @@
 
     <!-- deprecated property since removal of maven-nuxeo-plugin execution -->
     <eclipseVersion>${project.version}</eclipseVersion>
-    <org.ops4j.pax.version>4.13.5</org.ops4j.pax.version>
-    <org.apache.log4j.version>2.23.1</org.apache.log4j.version>
+    <org.ops4j.pax.version>1.7.5</org.ops4j.pax.version>
+    <org.apache.log4j.version>1.2.17</org.apache.log4j.version>
     <org.slf4j.version>1.7.36</org.slf4j.version>
-    <gatling.version>3.3.1</gatling.version>
-    <gatling-plugin.version>3.1.2</gatling-plugin.version>
+    <gatling.version>1.3.1</gatling.version>
+    <gatling-plugin.version>1.3.1</gatling-plugin.version>
     <scala.version>2.12.19</scala.version>
     <scala-logging.version>3.9.5</scala-logging.version>
     <scala-maven-plugin.version>4.9.1</scala-maven-plugin.version>
