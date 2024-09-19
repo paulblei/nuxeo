@@ -107,7 +107,7 @@
     <!-- deprecated property since removal of maven-nuxeo-plugin execution -->
     <eclipseVersion>${project.version}</eclipseVersion>
     <org.ops4j.pax.version>1.7.5</org.ops4j.pax.version>
-    <org.apache.log4j.version>1.2.17</org.apache.log4j.version>
+    <org.apache.log4j.version>2.12.4</org.apache.log4j.version>
     <org.slf4j.version>1.7.36</org.slf4j.version>
     <gatling.version>1.3.1</gatling.version>
     <gatling-plugin.version>1.3.1</gatling-plugin.version>
